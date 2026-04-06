@@ -1,0 +1,15 @@
+# Claude Code
+CLAUDE.md
+.claudeignore
+.claude/
+
+venv/
+*.egg-info/
+dist/
+build/
+db.sqlite3
+media/
+staticfiles/
+.mypy_cache/
+.pytest_cache/
+node_modules/
