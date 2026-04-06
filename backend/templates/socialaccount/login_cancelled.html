@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Login cancelled — Stratum{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="logo">⬡ Stratum</div>
+  <h1>Login cancelled</h1>
+  <p>You cancelled the GitHub login. No worries — try again when you're ready.</p>
+  <a href="{% url 'account_login' %}" class="btn btn-github">Back to sign in</a>
+</div>
+{% endblock %}
