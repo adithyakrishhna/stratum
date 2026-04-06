@@ -197,6 +197,14 @@ SITE_ID = 1
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = 'http'       # http for local dev; override to https in prod
+ACCOUNT_USERNAME_REQUIRED = False            # log in via GitHub only — no username/password
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_AUTHENTICATION_METHOD = 'email'      # consistent with no-username setup
+
+SOCIALACCOUNT_LOGIN_ON_GET = True            # allow GET-based GitHub redirect (OAuth flow)
+SOCIALACCOUNT_AUTO_SIGNUP = True             # auto-create user on first GitHub login
+SOCIALACCOUNT_STORE_TOKENS = False           # don't persist OAuth tokens — not needed yet
 
 SOCIALACCOUNT_PROVIDERS = {
     'github': {
