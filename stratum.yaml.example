@@ -1,0 +1,45 @@
+# stratum.yaml — Add this file to the ROOT of YOUR repository.
+# Stratum reads this config when analyzing your repo.
+# All settings are optional — Stratum uses the defaults below if omitted.
+
+rules:
+  max_function_lines: 50
+  max_complexity: 10
+  forbidden_imports:
+    python:
+      - pickle
+      - shelve
+    javascript:
+      - eval
+    php:
+      - eval
+  naming_conventions:
+    python: snake_case
+    java: camelCase
+    javascript: camelCase
+
+scoring_weights:
+  complexity: 0.30
+  duplication: 0.25
+  violations: 0.30
+  cluster_membership: 0.15
+
+semantic:
+  similarity_threshold: 0.85
+  cross_language_clustering: false   # experimental — lower accuracy, opt-in only
+
+skip:
+  directories:
+    - vendor/
+    - node_modules/
+    - migrations/
+    - .git/
+    - dist/
+    - build/
+    - __pycache__/
+  file_patterns:
+    - "*.min.js"
+    - "*.pb.go"
+    - "*.generated.*"
+    - "*.pb.py"
+  max_line_length_threshold: 500     # lines longer than this = minified/generated, skip

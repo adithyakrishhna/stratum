@@ -3,13 +3,31 @@ CLAUDE.md
 .claudeignore
 .claude/
 
+# Environment — never commit
+.env
+
+# Python
 venv/
+__pycache__/
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
+
+# Django
 db.sqlite3
 media/
 staticfiles/
+
+# Testing / tooling
 .mypy_cache/
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Node
 node_modules/
+
+# GitHub App private key
+*.pem
