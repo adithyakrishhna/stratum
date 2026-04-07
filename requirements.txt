@@ -44,6 +44,9 @@ detect-secrets==1.5.0
 # LLM — Groq API for fix suggestions (free tier)
 groq==0.13.1
 
+# HTTP client — used by circuit_breaker.py to call embedding service
+requests==2.32.3
+
 # Circuit Breaker
 pybreaker==1.2.0
 
