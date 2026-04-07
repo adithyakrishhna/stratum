@@ -3,19 +3,23 @@ PR Review Orchestrator — ties together all analysis components.
 
 Pipeline per PR:
   1.  Create/update PullRequest DB record
-  2.  Fetch changed files via GitHub API
-  3.  For each file (skip list checked):
+  2.  Check embedding service circuit breaker state
+  3.  Fetch changed files via GitHub API
+  4.  For each file (skip list checked):
         a. Run security scanner  → list[SecurityFinding]
         b. Load stratum.yaml rules → evaluate imports → list[RuleViolationData]
         c. Parse AST chunks       → evaluate each chunk → list[RuleViolationData]
-  4.  For critical/high findings: get Groq fix suggestion (cached)
-  5.  Persist all findings as PrFinding records (get_or_create — idempotent)
-  6.  Calculate health score (100 minus weighted deductions)
-  7.  Build inline review comments + severity-grouped summary
-  8.  Post single GitHub review (inline + summary)
-  9.  Update PullRequest.health_score + reviewed_at
+  5.  For critical/high findings: get Groq fix suggestion (cached)
+  6.  Persist all findings as PrFinding records (get_or_create — idempotent)
+  7.  Calculate health score (100 minus weighted deductions)
+  8.  Build inline review comments + severity-grouped summary
+        (includes degradation note if semantic analysis was skipped)
+  9.  Post single GitHub review (inline + summary)
+  10. Update PullRequest.health_score + reviewed_at
 
-Graceful degradation:
+Graceful degradation (Principle 8):
+  - If embedding circuit OPEN → skip semantic duplicate detection,
+    post note on PR, still deliver security + rule findings
   - If GitHub API fails to post review → findings still saved in DB
   - If Groq fails → finding posted without suggestion
   - Each file is wrapped in try/except → one bad file never stops the review
@@ -77,11 +81,11 @@ def run_pr_review(
     from apps.pr_review.models import PullRequest, PrFinding
     from apps.pr_review.github_client import fetch_pr_files, post_pr_review, ReviewComment
     from apps.pr_review.groq_client import get_fix_suggestion
+    from apps.pr_review.circuit_breaker import is_embedding_available, get_circuit_state
     from apps.security.scanner import scan_file
     from apps.rules.loader import load_rules
     from apps.rules.evaluator import evaluate_file_imports, evaluate_chunk, RuleViolationData
     from apps.parsing.language_router import get_language, should_skip
-    from apps.parsing.models import CodeChunk
 
     logger.info(
         "pr_review_started",
@@ -117,7 +121,28 @@ def run_pr_review(
     pr_record.save(update_fields=["status"])
 
     # ------------------------------------------------------------------
-    # Step 2: Fetch changed files
+    # Step 2: Check embedding service circuit breaker (Principle 5 + 8)
+    # ------------------------------------------------------------------
+    semantic_available = is_embedding_available()
+
+    if not semantic_available:
+        logger.warning(
+            "pr_review_semantic_skipped",
+            repo_id=repo_id,
+            pr_number=pr_number,
+            circuit_state=get_circuit_state(),
+            reason="embedding_circuit_open",
+        )
+    else:
+        logger.info(
+            "pr_review_semantic_available",
+            repo_id=repo_id,
+            pr_number=pr_number,
+            circuit_state=get_circuit_state(),
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3: Fetch changed files
     # ------------------------------------------------------------------
     try:
         pr_files = fetch_pr_files(installation_id, repo_full_name, pr_number, head_sha)
@@ -133,7 +158,7 @@ def run_pr_review(
         raise
 
     # ------------------------------------------------------------------
-    # Step 3: Load rules config once — shared across all files
+    # Step 4: Load rules config once — shared across all files
     # ------------------------------------------------------------------
     try:
         rules_config = load_rules(repo_id)
@@ -146,7 +171,7 @@ def run_pr_review(
         rules_config = {}
 
     # ------------------------------------------------------------------
-    # Step 4: Analyse each changed file
+    # Step 5: Analyse each changed file
     # ------------------------------------------------------------------
     all_findings: list[_FileFinding] = []
 
@@ -187,7 +212,7 @@ def run_pr_review(
     )
 
     # ------------------------------------------------------------------
-    # Step 5: Get Groq suggestions for critical + high (cached)
+    # Step 6: Get Groq suggestions for critical + high (cached)
     # ------------------------------------------------------------------
     for f in all_findings:
         if f.severity in ("critical", "high") and not f.suggestion:
@@ -201,7 +226,7 @@ def run_pr_review(
             )
 
     # ------------------------------------------------------------------
-    # Step 6: Persist findings (idempotent via get_or_create)
+    # Step 7: Persist findings (idempotent via get_or_create)
     # ------------------------------------------------------------------
     finding_type_map = {
         "security":   PrFinding.FindingType.SECURITY,
@@ -225,23 +250,24 @@ def run_pr_review(
         )
 
     # ------------------------------------------------------------------
-    # Step 7: Calculate health score
+    # Step 8: Calculate health score
     # ------------------------------------------------------------------
     deduction = sum(_DEDUCTIONS.get(f.severity, 0) for f in all_findings)
     health_score = max(0.0, 100.0 - deduction)
 
     # ------------------------------------------------------------------
-    # Step 8: Build review body + inline comments
+    # Step 9: Build review body + inline comments
     # ------------------------------------------------------------------
     inline_comments = _build_inline_comments(all_findings)
     summary_body = _build_summary_body(
         pr_number=pr_number,
         health_score=health_score,
         findings=all_findings,
+        semantic_skipped=not semantic_available,
     )
 
     # ------------------------------------------------------------------
-    # Step 9: Post review to GitHub
+    # Step 10: Post review to GitHub
     # ------------------------------------------------------------------
     try:
         review_id = post_pr_review(
@@ -268,7 +294,7 @@ def run_pr_review(
         )
 
     # ------------------------------------------------------------------
-    # Step 10: Update PullRequest record
+    # Step 11: Update PullRequest record
     # ------------------------------------------------------------------
     pr_record.health_score = health_score
     pr_record.status = PullRequest.Status.OPEN
@@ -505,10 +531,14 @@ def _build_summary_body(
     pr_number: int,
     health_score: float,
     findings: list[_FileFinding],
+    semantic_skipped: bool = False,
 ) -> str:
     """
     Build the PR summary comment body — markdown table + severity groups.
     Posted as the review body (visible at the top of the review).
+
+    If semantic_skipped is True (embedding circuit open), a degradation
+    notice is appended so the PR author knows semantic analysis was skipped.
     """
     # Count by severity
     counts: dict[str, int] = {s: 0 for s in _SEVERITY_ORDER}
@@ -529,15 +559,23 @@ def _build_summary_body(
 
     if not findings:
         lines += ["", "No issues found. Code looks clean!"]
-        return "\n".join(lines)
+    else:
+        # List critical + high findings by file for quick navigation
+        critical_high = [f for f in findings if f.severity in ("critical", "high")]
+        if critical_high:
+            lines += ["", "### Critical & High Priority Findings"]
+            for f in sorted(critical_high, key=lambda x: x.file_path):
+                loc = f"`{f.file_path}`" + (f" line {f.line_number}" if f.line_number else "")
+                lines.append(f"- {_severity_emoji(f.severity)} **{f.title}** — {loc}")
 
-    # List critical + high findings by file for quick navigation
-    critical_high = [f for f in findings if f.severity in ("critical", "high")]
-    if critical_high:
-        lines += ["", "### Critical & High Priority Findings"]
-        for f in sorted(critical_high, key=lambda x: x.file_path):
-            loc = f"`{f.file_path}`" + (f" line {f.line_number}" if f.line_number else "")
-            lines.append(f"- {_severity_emoji(f.severity)} **{f.title}** — {loc}")
+    # Graceful degradation notice — Principle 8
+    if semantic_skipped:
+        lines += [
+            "",
+            "> **Note:** Semantic analysis unavailable (embedding service circuit open). "
+            "Security and rule checks completed. Duplicate logic detection and debt impact "
+            "prediction were skipped for this review.",
+        ]
 
     lines += [
         "",
