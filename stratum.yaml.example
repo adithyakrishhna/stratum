@@ -1,33 +1,61 @@
-# stratum.yaml — Add this file to the ROOT of YOUR repository.
-# Stratum reads this config when analyzing your repo.
-# All settings are optional — Stratum uses the defaults below if omitted.
+# =============================================================================
+# stratum.yaml — Stratum rule configuration
+# Place this file in the ROOT of YOUR repository (not Stratum's repo).
+# Stratum reads this file to enforce code quality rules on PRs and history.
+# All settings are optional — defaults are used when omitted.
+# =============================================================================
 
 rules:
+  # Maximum number of lines in a single function or method.
+  # Functions longer than this are flagged at medium severity.
   max_function_lines: 50
+
+  # Maximum cyclomatic complexity (1 + number of branches).
+  # > 2x this limit → high severity. Within 2x → medium.
   max_complexity: 10
+
+  # Packages that must not be imported, by language.
   forbidden_imports:
     python:
-      - pickle
-      - shelve
+      - pickle       # insecure deserialization
+      - shelve       # backed by pickle
+      - marshal      # insecure deserialization
     javascript:
+      - eval
+    typescript:
       - eval
     php:
       - eval
+
+  # Naming convention enforcement, by language.
+  # Options: snake_case | camelCase | PascalCase | SCREAMING_SNAKE_CASE
   naming_conventions:
     python: snake_case
     java: camelCase
-    javascript: camelCase
+    go: camelCase
+    ruby: snake_case
 
+# =============================================================================
+# Debt scoring weights — controls how each component contributes to the
+# per-file debt score on the Debt Timeline and Velocity Heatmap.
+# All four weights must sum to 1.0.
+# =============================================================================
 scoring_weights:
-  complexity: 0.30
-  duplication: 0.25
-  violations: 0.30
-  cluster_membership: 0.15
+  complexity: 0.3
+  duplication: 0.3
+  violations: 0.2
+  cluster_membership: 0.2
 
+# =============================================================================
+# Semantic analysis settings (Phase 3+)
+# =============================================================================
 semantic:
   similarity_threshold: 0.85
-  cross_language_clustering: false   # experimental — lower accuracy, opt-in only
+  cross_language_clustering: false   # experimental — opt-in only, lower accuracy
 
+# =============================================================================
+# Skip list — files and directories Stratum will not analyze
+# =============================================================================
 skip:
   directories:
     - vendor/
