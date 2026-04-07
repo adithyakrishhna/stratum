@@ -1,0 +1,39 @@
+# Version control
+.git/
+.gitignore
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Django generated
+backend/staticfiles/
+backend/media/
+
+# Local data
+repo_clones/
+secrets/
+*.pem
+
+# Dev / test
+.env
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docs / IDE
+docs/
+*.md
+.vscode/
+.idea/
+
+# Docker
+docker-compose.dev.yml
