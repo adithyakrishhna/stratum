@@ -12,6 +12,102 @@ logger = structlog.get_logger(__name__)
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
+    queue="embedding",
+    name="apps.parsing.tasks.embed_chunks",
+)
+def embed_chunks(self, chunk_ids: list[str], chunk_texts: list[str]):
+    """
+    Fetch embeddings for a batch of CodeChunks and persist them to DB.
+
+    Called by parse_file after bulk_create.  chunk_texts are passed
+    directly from the in-memory chunks list to avoid a second DB read
+    (raw_code may not be stored depending on STORE_RAW_CODE setting).
+
+    Pipeline
+    --------
+    1. get_embeddings_batch()  → Redis cache → embedding service
+       (Optimization 5: same code across 50 commits → embedded once)
+    2. Build CodeChunk instances with embedding set
+    3. bulk_update(batch_size=500) — Optimization 3
+
+    Design decisions
+    ----------------
+    - chunk_ids and chunk_texts are parallel lists (same ordering)
+    - Vectors that come back as None (circuit open / service error)
+      are silently skipped — chunk.embedding stays NULL and will be
+      retried on the next analysis run
+    - Principle 1 (idempotency): re-running on the same chunk_ids is
+      safe; bulk_update overwrites with the same value
+    """
+    import time
+    from apps.parsing.models import CodeChunk
+    from apps.parsing.embedding_client import get_embeddings_batch
+
+    if not chunk_ids:
+        return
+
+    start_ts = time.monotonic()
+
+    logger.info(
+        "embed_chunks_started",
+        chunk_count=len(chunk_ids),
+    )
+
+    # -----------------------------------------------------------------------
+    # Step 1: Fetch embeddings (cache-first, then service)
+    # -----------------------------------------------------------------------
+    embeddings = get_embeddings_batch(chunk_texts)
+
+    # -----------------------------------------------------------------------
+    # Step 2: Pair chunk IDs with their vectors, skipping None results
+    # -----------------------------------------------------------------------
+    id_to_vector: dict[str, list[float]] = {}
+    for chunk_id, vec in zip(chunk_ids, embeddings):
+        if vec is not None:
+            id_to_vector[chunk_id] = vec
+
+    if not id_to_vector:
+        logger.warning(
+            "embed_chunks_no_vectors",
+            chunk_count=len(chunk_ids),
+            reason="all embeddings unavailable (circuit open or service error)",
+        )
+        return
+
+    # -----------------------------------------------------------------------
+    # Step 3: Fetch only the chunks that have a vector to update
+    # -----------------------------------------------------------------------
+    chunks_to_update = list(
+        CodeChunk.objects.filter(id__in=list(id_to_vector.keys()))
+    )
+
+    for chunk in chunks_to_update:
+        chunk.embedding = id_to_vector[str(chunk.id)]
+
+    # Bulk update — Optimization 3: 100x fewer DB round-trips
+    from django.conf import settings as _settings
+    CodeChunk.objects.bulk_update(
+        chunks_to_update,
+        ["embedding"],
+        batch_size=_settings.DB_BULK_CREATE_BATCH_SIZE,
+    )
+
+    duration_ms = int((time.monotonic() - start_ts) * 1000)
+    logger.info(
+        "embed_chunks_done",
+        embedded_count=len(chunks_to_update),
+        skipped_count=len(chunk_ids) - len(chunks_to_update),
+        duration_ms=duration_ms,
+    )
+
+
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
     queue="parsing",
     name="apps.parsing.tasks.parse_file",
 )
@@ -60,8 +156,49 @@ def parse_file(self, repo_id: str, commit_id: str, file_path: str, file_content:
     chunks = _extract_chunks(tree, file_content, file_path, language, repo, commit)
 
     if chunks:
-        # Principle 1: idempotency — skip_conflicts silently skips existing rows
-        CodeChunk.objects.bulk_create(chunks, batch_size=settings.DB_BULK_CREATE_BATCH_SIZE, ignore_conflicts=True)
+        from django.conf import settings
+
+        # Build text_map BEFORE clearing raw_code — always available in memory
+        text_map: dict[tuple, str] = {
+            (c.chunk_name, c.start_line): (c.raw_code or "")
+            for c in chunks
+        }
+
+        # Respect STORE_RAW_CODE: clear raw_code on objects before DB write
+        if not settings.STORE_RAW_CODE:
+            for c in chunks:
+                c.raw_code = None
+
+        # Principle 1: idempotency — ignore_conflicts silently skips existing rows
+        CodeChunk.objects.bulk_create(
+            chunks,
+            batch_size=settings.DB_BULK_CREATE_BATCH_SIZE,
+            ignore_conflicts=True,
+        )
+
+        # Dispatch embedding task (Phase 3).
+        # Re-query DB to get actual UUIDs — some rows may have been skipped
+        # (ignore_conflicts). Query only chunks without an embedding yet so
+        # idempotent re-runs skip already-embedded chunks.
+        persisted = list(
+            CodeChunk.objects.filter(
+                commit_id=commit_id,
+                file_path=file_path,
+                embedding__isnull=True,
+            ).values("id", "chunk_name", "start_line")
+        )
+
+        if persisted:
+            chunk_ids   = [str(row["id"]) for row in persisted]
+            chunk_texts = [
+                text_map.get((row["chunk_name"], row["start_line"]), "")
+                for row in persisted
+            ]
+
+            embed_chunks.apply_async(
+                kwargs={"chunk_ids": chunk_ids, "chunk_texts": chunk_texts},
+                queue="embedding",
+            )
 
     duration_ms = int((time.monotonic() - start_time) * 1000)
     logger.info(
@@ -148,6 +285,11 @@ def _node_to_chunk(node, lines: list, file_path: str, language: str, chunk_type:
     raw_code = "\n".join(lines[start_line : end_line + 1])
     complexity = _cyclomatic_complexity(node)
 
+    # Always keep raw_code on the in-memory object so the embedding task
+    # can read it from chunk.raw_code — regardless of STORE_RAW_CODE.
+    # bulk_create will write the value to the DB column only when
+    # STORE_RAW_CODE=True; when False we clear it just before persisting
+    # (handled in parse_file before bulk_create).
     return CodeChunk(
         commit=commit,
         repo=repo,
@@ -158,8 +300,8 @@ def _node_to_chunk(node, lines: list, file_path: str, language: str, chunk_type:
         start_line=start_line + 1,   # store 1-indexed
         end_line=end_line + 1,
         complexity_score=float(complexity),
-        raw_code=raw_code if settings.STORE_RAW_CODE else None,
-        embedding=None,              # filled in Phase 3 by embedding microservice
+        raw_code=raw_code,           # always set in memory; cleared before DB if STORE_RAW_CODE=False
+        embedding=None,
     )
 
 
