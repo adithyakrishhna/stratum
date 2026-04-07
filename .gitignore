@@ -31,3 +31,9 @@ node_modules/
 
 # GitHub App private key
 *.pem
+
+# Local repo clones (created by ingestion engine, never commit)
+repo_clones/
+
+# Secrets folder
+secrets/
