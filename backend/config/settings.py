@@ -205,13 +205,15 @@ SOCIALACCOUNT_LOGIN_ON_GET = True            # allow GET-based GitHub redirect (
 SOCIALACCOUNT_AUTO_SIGNUP = True             # auto-create user on first GitHub login
 SOCIALACCOUNT_STORE_TOKENS = False           # don't persist OAuth tokens — not needed yet
 
+# Credentials are stored in the SocialApp DB record (created by setup_social_apps
+# management command). Do NOT add an 'APP' key here — allauth 65.x finds both the
+# DB record and a settings-based app, raises MultipleObjectsReturned.
+# Raw credential env vars are read only by the setup_social_apps command.
+GITHUB_OAUTH_CLIENT_ID = os.environ.get('GITHUB_OAUTH_CLIENT_ID', '')
+GITHUB_OAUTH_CLIENT_SECRET = os.environ.get('GITHUB_OAUTH_CLIENT_SECRET', '')
+
 SOCIALACCOUNT_PROVIDERS = {
     'github': {
-        'APP': {
-            'client_id': os.environ.get('GITHUB_OAUTH_CLIENT_ID', ''),
-            'secret': os.environ.get('GITHUB_OAUTH_CLIENT_SECRET', ''),
-            'key': '',
-        },
         'SCOPE': ['repo', 'read:user', 'user:email'],
         'AUTH_PARAMS': {'allow_signup': 'true'},
     }
