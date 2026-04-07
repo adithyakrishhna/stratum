@@ -179,9 +179,6 @@ CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': REDIS_URL,
-        'OPTIONS': {
-            'max_entries': 10000,
-        },
     }
 }
 
