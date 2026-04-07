@@ -31,8 +31,9 @@ class CodeChunk(models.Model):
     complexity_score = models.FloatField(default=0.0)
     # Stored only when STORE_RAW_CODE=true; null otherwise to reduce DB size
     raw_code = models.TextField(null=True, blank=True)
-    # 384-dim CodeBERT embedding — null until embedding microservice processes it
-    embedding = VectorField(dimensions=384, null=True, blank=True)
+    # 768-dim CodeBERT embedding — null until embedding microservice processes it
+    # microsoft/codebert-base uses BERT-base architecture: 768 hidden dimensions
+    embedding = VectorField(dimensions=768, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

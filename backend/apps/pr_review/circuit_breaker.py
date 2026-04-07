@@ -99,7 +99,7 @@ def call_embedding_service(texts: list[str]) -> list[list[float]]:
         texts: list of raw source code strings to embed (batch of up to 64)
 
     Returns:
-        list of 384-dimensional embedding vectors, one per input text
+        list of 768-dimensional embedding vectors, one per input text
 
     Raises:
         pybreaker.CircuitBreakerError — when circuit is OPEN (fast-fail)
