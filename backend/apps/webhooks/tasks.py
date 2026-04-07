@@ -46,14 +46,36 @@ def handle_pull_request_event(self, payload: dict):
         )
         return
 
+    installation_id = repo.github_app_installation_id
+    if not installation_id:
+        logger.warning(
+            "pr_task_no_installation_id",
+            repo_id=str(repo.id),
+            repo=repo_full_name,
+            pr_number=pr_number,
+        )
+        return
+
     logger.info(
-        "pr_task_repo_found",
+        "pr_task_dispatching_review",
         repo_id=str(repo.id),
         repo=repo_full_name,
         pr_number=pr_number,
         action=action,
     )
-    # Phase 2: pr_review orchestration task will be dispatched here.
+
+    from apps.pr_review.tasks import review_pull_request
+
+    review_pull_request.apply_async(
+        kwargs={
+            "repo_id": str(repo.id),
+            "installation_id": installation_id,
+            "repo_full_name": repo_full_name,
+            "pr_number": pr_number,
+            "pr_data": pr_data,
+        },
+        queue="pr_priority",
+    )
 
 
 @celery_app.task(

@@ -41,6 +41,12 @@ PyGithub==2.5.0
 # Secret Detection
 detect-secrets==1.5.0
 
+# LLM — Groq API for fix suggestions (free tier)
+groq==0.13.1
+
+# Circuit Breaker
+pybreaker==1.2.0
+
 # Utilities
 python-dotenv==1.0.1
 pyyaml==6.0.2
