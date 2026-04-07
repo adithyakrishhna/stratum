@@ -61,6 +61,40 @@ class PipelineEvent(models.Model):
         return f'{self.stage} — {self.status} ({self.repo})'
 
 
+class FileFingerprint(models.Model):
+    """
+    Tracks the sha256 hash of each file at the last time it was analyzed.
+
+    Purpose: Optimization 4 — if a file's content hasn't changed since the last
+    analysis, skip it entirely and reuse the existing CodeChunk records.
+    Stored per (repo, file_path) — one row per file, updated on change.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(
+        'repositories.Repository',
+        on_delete=models.CASCADE,
+        related_name='file_fingerprints',
+    )
+    file_path = models.CharField(max_length=1024)
+    content_hash = models.CharField(max_length=64)  # sha256 hex digest
+    last_commit = models.ForeignKey(
+        'ingestion.Commit',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='fingerprinted_files',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('repo', 'file_path')]
+        indexes = [
+            models.Index(fields=['repo', 'file_path']),
+        ]
+
+    def __str__(self):
+        return f'{self.file_path} @ {self.content_hash[:8]}'
+
+
 class FailedTask(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(

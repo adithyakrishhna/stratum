@@ -364,6 +364,13 @@ COMMIT_BATCH_SIZE = 50           # batch git history walks
 DB_BULK_CREATE_BATCH_SIZE = 500  # Optimization 3
 AST_PARSER_WORKERS = 4           # Optimization 2
 
+# Local directory where repos are cloned for analysis
+# In prod this should be a persistent volume mount.
+REPO_CLONE_BASE_DIR = os.environ.get(
+    'REPO_CLONE_BASE_DIR',
+    str(BASE_DIR.parent / 'repo_clones'),
+)
+
 # ---------------------------------------------------------------------------
 # Miscellaneous Django settings
 # ---------------------------------------------------------------------------
