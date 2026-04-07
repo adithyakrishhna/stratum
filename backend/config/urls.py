@@ -1,8 +1,15 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
+from django.http import JsonResponse
+
+
+def health(request):
+    return JsonResponse({"status": "ok"})
+
 
 urlpatterns = [
+    path('health/', health),
     path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
