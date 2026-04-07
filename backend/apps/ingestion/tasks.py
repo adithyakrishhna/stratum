@@ -15,12 +15,15 @@ logger = structlog.get_logger(__name__)
     queue="ingestion",
     name="apps.ingestion.tasks.ingest_repository",
 )
-def ingest_repository(self, repo_id: str):
+def ingest_repository(self, repo_id: str, user_id: str = ""):
     """
     Celery entry point: walk the full git history for a repository.
 
-    Delegates all logic to engine.ingest_repository so the engine
-    can be tested independently of Celery.
+    Args:
+        repo_id:  Stratum Repository UUID string
+        user_id:  Stratum user ID string — used to release the rate-limit
+                  slot on completion. Passed by trigger_analysis view.
+                  Empty string when triggered by webhook (no slot to release).
     """
     from apps.ingestion.engine import ingest_repository as run_ingestion
     from apps.ingestion.models import FailedTask
@@ -57,3 +60,9 @@ def ingest_repository(self, repo_id: str):
                     error=str(inner),
                 )
         raise
+    finally:
+        # Release the analysis slot acquired by trigger_analysis view.
+        # Only release if a user_id was provided (API-triggered, not webhook).
+        if user_id:
+            from apps.repositories.rate_limiter import release_analysis_slot
+            release_analysis_slot(user_id)

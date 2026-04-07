@@ -161,7 +161,7 @@ CELERY_TASK_DEFAULT_QUEUE = 'default'
 CELERY_TASK_DEFAULT_EXCHANGE = 'default'
 CELERY_TASK_DEFAULT_ROUTING_KEY = 'default'
 
-# Embedding queue rate limit: 10 tasks/sec (Principle 3)
+# Queue routing + embedding rate limit: 10 tasks/sec (Principle 3)
 CELERY_TASK_ANNOTATIONS = {
     'apps.ingestion.*':   {'queue': 'ingestion'},
     'apps.parsing.*':     {'queue': 'parsing'},
@@ -169,6 +169,8 @@ CELERY_TASK_ANNOTATIONS = {
     'apps.clustering.*':  {'queue': 'intelligence'},
     'apps.debt.*':        {'queue': 'intelligence'},
     'apps.blame.*':       {'queue': 'intelligence'},
+    # Embedding tasks capped at 10/sec — prevents overwhelming CodeBERT
+    'embedding_service.*': {'rate_limit': '10/s'},
 }
 
 # ---------------------------------------------------------------------------
