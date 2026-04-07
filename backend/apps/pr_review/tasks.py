@@ -55,6 +55,20 @@ def review_pull_request(
         task_id=self.request.id,
     )
 
+    # --- Principle 3: Rate limit — look up repo owner and acquire slot ---
+    user_id = _get_repo_owner_id(repo_id)
+    if user_id:
+        from apps.repositories.rate_limiter import acquire_analysis_slot
+        if not acquire_analysis_slot(user_id):
+            logger.warning(
+                "review_task_rate_limited",
+                repo_id=repo_id,
+                repo=repo_full_name,
+                pr_number=pr_number,
+                user_id=user_id,
+            )
+            return   # Do not retry — intentional throttle, not an error
+
     # Write pipeline_events record — stage start (Principle 4)
     _record_pipeline_event(
         repo_id=repo_id,
@@ -122,6 +136,35 @@ def review_pull_request(
             )
 
         raise  # triggers autoretry
+
+    finally:
+        # Always release the slot — whether the task succeeded, failed, or retried
+        if user_id:
+            from apps.repositories.rate_limiter import release_analysis_slot
+            release_analysis_slot(user_id)
+
+
+# ---------------------------------------------------------------------------
+# Rate limit helper
+# ---------------------------------------------------------------------------
+
+def _get_repo_owner_id(repo_id: str) -> str | None:
+    """
+    Return the user_id (string) of the owner/admin of this repo,
+    or None if no user is linked (e.g. installation-only repo with no
+    Stratum account yet).
+    """
+    try:
+        from apps.repositories.models import UserRepository
+        ur = (
+            UserRepository.objects
+            .filter(repository_id=repo_id, role__in=('owner', 'admin'))
+            .values_list('user_id', flat=True)
+            .first()
+        )
+        return str(ur) if ur else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
