@@ -349,6 +349,59 @@ def disconnect_repository(request, repo_id):
     return JsonResponse({'success': True, 'data': None, 'meta': {}, 'error': None})
 
 
+@login_required
+@require_GET
+def list_branches(request, repo_id):
+    """
+    Return a list of branch names for a connected repository.
+    Calls the GitHub API — uses PAT if configured, otherwise unauthenticated
+    (public repos only). Result is cached in Redis for 60 seconds to
+    avoid hammering the GitHub API on rapid re-renders.
+    """
+    from .models import UserRepository
+    from django.core.cache import cache
+
+    try:
+        ur = UserRepository.objects.select_related('repository').get(
+            user=request.user,
+            repository_id=repo_id,
+        )
+    except UserRepository.DoesNotExist:
+        return JsonResponse(
+            {'success': False, 'error': 'Repository not found.', 'data': [], 'meta': {}},
+            status=404,
+        )
+
+    repo = ur.repository
+    cache_key = f'branches:{repo.full_name}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse({'success': True, 'data': cached, 'meta': {'cached': True}, 'error': None})
+
+    try:
+        from github import Github
+        from django.conf import settings
+
+        pat = getattr(settings, 'GITHUB_PERSONAL_ACCESS_TOKEN', '') or ''
+        gh = Github(pat) if pat else Github()
+        gh_repo = gh.get_repo(repo.full_name)
+        branches = [b.name for b in gh_repo.get_branches()]
+
+        cache.set(cache_key, branches, timeout=60)
+        logger.info('list_branches_ok', repo=repo.full_name, count=len(branches))
+        return JsonResponse({'success': True, 'data': branches, 'meta': {}, 'error': None})
+
+    except Exception as exc:
+        logger.warning('list_branches_failed', repo=repo.full_name, error=str(exc))
+        # Return the stored default branch as fallback so the UI is never empty
+        return JsonResponse({
+            'success': False,
+            'data': [repo.default_branch] if repo.default_branch else [],
+            'error': str(exc),
+            'meta': {},
+        }, status=502)
+
+
 def _repo_dict(repo, role):
     return {
         'id': str(repo.id),

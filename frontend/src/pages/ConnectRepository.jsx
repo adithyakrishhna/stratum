@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { GitFork, Plus, Trash2, Play, CheckCircle, AlertCircle, Loader, GitBranch } from 'lucide-react'
+import { GitFork, Plus, Trash2, Play, CheckCircle, AlertCircle, Loader, GitBranch, RefreshCw } from 'lucide-react'
 
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
@@ -17,6 +17,57 @@ function StatusBadge({ status }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>
       {label}
     </span>
+  )
+}
+
+function BranchSelect({ repo, value, onChange }) {
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['branches', repo.id],
+    queryFn: () => api.get(`/repositories/${repo.id}/branches/`).then(r => r.data),
+    staleTime: 60_000,          // refetch after 1 min
+    refetchInterval: 60_000,    // poll every 60s for real-time updates
+    refetchOnWindowFocus: true,
+  })
+
+  const branches = data?.data || []
+  // Always include the currently-selected branch even if API is slow/failed
+  const options = branches.includes(value) ? branches : [value, ...branches].filter(Boolean)
+
+  return (
+    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+      <GitBranch size={13} className="text-fg-muted shrink-0" />
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={isLoading}
+          className="h-7 pl-2 pr-6 text-xs font-mono rounded bg-canvas border border-border text-fg
+                     focus:outline-none focus:border-accent appearance-none cursor-pointer
+                     disabled:opacity-50 min-w-[9rem]"
+        >
+          {isLoading && <option disabled value="">Loading…</option>}
+          {options.map(b => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
+        {/* custom caret */}
+        <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-fg-muted">
+          ▾
+        </span>
+      </div>
+      <button
+        onClick={() => refetch()}
+        title="Refresh branches"
+        disabled={isFetching}
+        className="flex items-center justify-center w-5 h-5 text-fg-muted hover:text-fg
+                   transition-colors disabled:opacity-40"
+      >
+        <RefreshCw size={11} className={isFetching ? 'animate-spin' : ''} />
+      </button>
+      {isError && (
+        <span className="text-xs text-warning">couldn't fetch branches</span>
+      )}
+    </div>
   )
 }
 
@@ -53,22 +104,12 @@ function RepoRow({ repo, onAnalyze, onDisconnect, analyzing, disconnecting }) {
         </button>
       </div>
 
-      {/* Bottom row: branch selector + analyze button */}
+      {/* Bottom row: branch dropdown + analyze button */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <GitBranch size={13} className="text-fg-muted shrink-0" />
-          <input
-            type="text"
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="branch name"
-            className="h-7 px-2 text-xs font-mono rounded bg-canvas border border-border text-fg
-                       focus:outline-none focus:border-accent w-36"
-          />
-          {branchChanged && (
-            <span className="text-xs text-warning">branch will change on analyze</span>
-          )}
-        </div>
+        <BranchSelect repo={repo} value={branch} onChange={setBranch} />
+        {branchChanged && (
+          <span className="text-xs text-warning shrink-0">will re-analyze from scratch</span>
+        )}
 
         <button
           onClick={() => onAnalyze(repo.id, branch)}
