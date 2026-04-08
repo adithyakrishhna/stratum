@@ -40,6 +40,7 @@ def ingest_repository(self, repo_id: str, user_id: str = ""):
         # before DBSCAN tries to read them. Simple and effective without Celery chords.
         if summary.get("files_queued", 0) > 0:
             _dispatch_rebuild_clusters(repo_id)
+            _dispatch_score_debt(repo_id)
 
         return summary
     except Exception as exc:
@@ -106,3 +107,21 @@ def _dispatch_rebuild_clusters(repo_id: str) -> None:
             )
     except Exception as exc:
         logger.warning("rebuild_clusters_dispatch_failed", repo_id=repo_id, error=str(exc))
+
+
+def _dispatch_score_debt(repo_id: str) -> None:
+    """
+    Dispatch score_repo_debt with countdown=360 — fires 1 minute after
+    rebuild_clusters (countdown=300), giving clustering time to finish.
+    Never raises.
+    """
+    try:
+        from apps.debt.tasks import score_repo_debt
+        score_repo_debt.apply_async(
+            kwargs={"repo_id": repo_id},
+            queue="intelligence",
+            countdown=360,
+        )
+        logger.info("score_repo_debt_dispatched", repo_id=repo_id, countdown_seconds=360)
+    except Exception as exc:
+        logger.warning("score_repo_debt_dispatch_failed", repo_id=repo_id, error=str(exc))

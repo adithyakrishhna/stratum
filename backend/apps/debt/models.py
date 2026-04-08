@@ -24,6 +24,8 @@ class DebtScore(models.Model):
     total_score = models.FloatField(default=0.0)
     # Rate of change vs the same file's score in the previous commit
     velocity = models.FloatField(default=0.0)
+    # True when velocity is a statistical outlier (mean + 2*std across file history)
+    is_inflection = models.BooleanField(default=False)
     recorded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
