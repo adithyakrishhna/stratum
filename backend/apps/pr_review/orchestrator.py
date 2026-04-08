@@ -266,6 +266,62 @@ def run_pr_review(
             )
 
     # ------------------------------------------------------------------
+    # Step 5c: PR Debt Impact Prediction — The Killer Feature
+    #   Compares PR chunks against all existing cluster centroids.
+    #   Posts warning if merging would accelerate cluster growth > 5%.
+    #   (Principle 8 — skip if circuit open, same as duplicate detection)
+    # ------------------------------------------------------------------
+    cluster_impacts = []
+
+    if semantic_available and all_pr_chunks:
+        try:
+            from apps.pr_review.debt_impact import predict_debt_impact, compute_debt_impact_score
+
+            impact_threshold = float(rules_config.get("debt_impact_threshold", 0.05))
+            cluster_impacts = predict_debt_impact(
+                chunks=all_pr_chunks,
+                repo_id=repo_id,
+                impact_threshold=impact_threshold,
+            )
+
+            # Convert ClusterImpact → _FileFinding (DEBT_IMPACT type)
+            # Line number is None — this is a PR-level warning, not line-specific
+            for ci in cluster_impacts:
+                pct = int(ci.growth_rate * 100)
+                all_findings.append(_FileFinding(
+                    file_path="",       # PR-level finding
+                    line_number=None,
+                    finding_type="debt_impact",
+                    severity="high" if ci.growth_rate >= 0.30 else "medium",
+                    title=f"Accelerates pattern '{ci.representative_chunk}' by ~{pct}%",
+                    description=(
+                        f"This PR introduces {ci.new_chunks_joining} function(s) similar to "
+                        f"an existing cluster (`{ci.representative_chunk}`-like pattern), "
+                        f"currently spanning {ci.current_chunk_count} functions in "
+                        f"{ci.current_file_count} file(s). "
+                        f"Merging accelerates cluster growth by ~{pct}%. "
+                        f"Pattern originated in commit `{ci.origin_commit_sha}`. "
+                        f"Consider consolidating before merging."
+                    ),
+                ))
+
+            if cluster_impacts:
+                logger.info(
+                    "pr_review_debt_impact_found",
+                    repo_id=repo_id,
+                    pr_number=pr_number,
+                    clusters_affected=len(cluster_impacts),
+                    max_growth_rate=cluster_impacts[0].growth_rate if cluster_impacts else 0,
+                )
+        except Exception as exc:
+            logger.warning(
+                "pr_review_debt_impact_failed",
+                repo_id=repo_id,
+                pr_number=pr_number,
+                error=str(exc),
+            )
+
+    # ------------------------------------------------------------------
     # Step 6: Get Groq suggestions for critical + high (cached)
     # ------------------------------------------------------------------
     for f in all_findings:
@@ -283,10 +339,11 @@ def run_pr_review(
     # Step 7: Persist findings (idempotent via get_or_create)
     # ------------------------------------------------------------------
     finding_type_map = {
-        "security":   PrFinding.FindingType.SECURITY,
-        "rule":       PrFinding.FindingType.RULE,
-        "complexity": PrFinding.FindingType.COMPLEXITY,
-        "duplicate":  PrFinding.FindingType.DUPLICATE,
+        "security":    PrFinding.FindingType.SECURITY,
+        "rule":        PrFinding.FindingType.RULE,
+        "complexity":  PrFinding.FindingType.COMPLEXITY,
+        "duplicate":   PrFinding.FindingType.DUPLICATE,
+        "debt_impact": PrFinding.FindingType.DEBT_IMPACT,
     }
 
     for f in all_findings:
@@ -319,6 +376,7 @@ def run_pr_review(
         health_score=health_score,
         findings=all_findings,
         duplicate_matches=duplicate_matches,
+        cluster_impacts=cluster_impacts,
         semantic_skipped=not semantic_available,
     )
 
@@ -352,10 +410,12 @@ def run_pr_review(
     # ------------------------------------------------------------------
     # Step 11: Update PullRequest record
     # ------------------------------------------------------------------
+    from apps.pr_review.debt_impact import compute_debt_impact_score
     pr_record.health_score = health_score
+    pr_record.debt_impact_score = compute_debt_impact_score(cluster_impacts)
     pr_record.status = PullRequest.Status.OPEN
     pr_record.reviewed_at = datetime.now(timezone.utc)
-    pr_record.save(update_fields=["health_score", "status", "reviewed_at"])
+    pr_record.save(update_fields=["health_score", "debt_impact_score", "status", "reviewed_at"])
 
     elapsed_ms = int((time.monotonic() - start_ts) * 1000)
     logger.info(
@@ -595,6 +655,7 @@ def _build_summary_body(
     health_score: float,
     findings: list[_FileFinding],
     duplicate_matches: list = None,
+    cluster_impacts: list = None,
     semantic_skipped: bool = False,
 ) -> str:
     """
@@ -606,11 +667,14 @@ def _build_summary_body(
     """
     if duplicate_matches is None:
         duplicate_matches = []
+    if cluster_impacts is None:
+        cluster_impacts = []
 
-    # Count by severity (exclude duplicate type from severity table — shown separately)
-    non_dup_findings = [f for f in findings if f.finding_type != "duplicate"]
+    # Count by severity (exclude debt_impact + duplicate from severity table — shown separately)
+    contextual_types = {"duplicate", "debt_impact"}
+    base_findings = [f for f in findings if f.finding_type not in contextual_types]
     counts: dict[str, int] = {s: 0 for s in _SEVERITY_ORDER}
-    for f in non_dup_findings:
+    for f in base_findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
 
     score_emoji = "🟢" if health_score >= 80 else ("🟡" if health_score >= 50 else "🔴")
@@ -625,13 +689,44 @@ def _build_summary_body(
         emoji = _severity_emoji(sev)
         lines.append(f"| {emoji} {sev.capitalize()} | {counts[sev]} |")
 
-    if non_dup_findings:
-        critical_high = [f for f in non_dup_findings if f.severity in ("critical", "high")]
+    if base_findings:
+        critical_high = [f for f in base_findings if f.severity in ("critical", "high")]
         if critical_high:
             lines += ["", "### Critical & High Priority Findings"]
             for f in sorted(critical_high, key=lambda x: x.file_path):
                 loc = f"`{f.file_path}`" + (f" line {f.line_number}" if f.line_number else "")
                 lines.append(f"- {_severity_emoji(f.severity)} **{f.title}** — {loc}")
+
+    # -----------------------------------------------------------------
+    # Debt Impact Prediction — The Killer Feature
+    # Shown prominently at the top of contextual analysis, before duplicates
+    # -----------------------------------------------------------------
+    if cluster_impacts:
+        high_impact = [ci for ci in cluster_impacts if ci.growth_rate >= 0.30]
+        warning_level = "⚠️ HIGH IMPACT WARNING" if high_impact else "⚠️ Debt Impact Warning"
+        lines += [
+            "",
+            f"### {warning_level} — This PR Accelerates Technical Debt",
+            "",
+            f"This PR introduces code similar to **{len(cluster_impacts)} existing pattern cluster(s)**. "
+            "Merging will accelerate cluster growth — patterns already spreading across the codebase.",
+            "",
+            "| Cluster Pattern | Current Size | Files | Growth After Merge | Origin Commit |",
+            "|---|---|---|---|---|",
+        ]
+        for ci in cluster_impacts:
+            pct = int(ci.growth_rate * 100)
+            badge = "🔴" if ci.growth_rate >= 0.30 else "🟠"
+            lines.append(
+                f"| `{ci.representative_chunk}` | {ci.current_chunk_count} functions | "
+                f"{ci.current_file_count} files | {badge} +{pct}% ({ci.new_chunks_joining} new) | "
+                f"`{ci.origin_commit_sha[:8]}` |"
+            )
+        lines += [
+            "",
+            "> **Consider consolidating these patterns before merging** to prevent "
+            "further spread. See the [Stratum Cluster Map](#) for full cluster history.",
+        ]
 
     # Duplicate logic section — the unique Stratum value
     if duplicate_matches:
