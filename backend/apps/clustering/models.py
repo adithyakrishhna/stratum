@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from pgvector.django import VectorField
 
 
 class SemanticCluster(models.Model):
@@ -10,8 +11,10 @@ class SemanticCluster(models.Model):
         on_delete=models.CASCADE,
         related_name='clusters',
     )
-    # Stable ID — sha256 hash of centroid embedding. Never changes between runs.
+    # Stable ID — sha256 of the rounded centroid at cluster creation. Never changes.
     centroid_hash = models.CharField(max_length=64, unique=True)
+    # Stored centroid vector enables fast pgvector assignment (Optimization 8 fast path)
+    centroid = VectorField(dimensions=768, null=True, blank=True)
     label = models.CharField(max_length=255, blank=True)
     language = models.CharField(max_length=50)
     first_seen_at = models.DateTimeField()

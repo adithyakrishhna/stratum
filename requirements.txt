@@ -50,6 +50,10 @@ requests==2.32.3
 # Circuit Breaker
 pybreaker==1.2.0
 
+# ML — DBSCAN clustering for semantic pattern detection (Phase 4)
+scikit-learn==1.5.2
+numpy==1.26.4
+
 # Utilities
 python-dotenv==1.0.1
 pyyaml==6.0.2
