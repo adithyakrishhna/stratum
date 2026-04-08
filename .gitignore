@@ -37,3 +37,7 @@ repo_clones/
 
 # Secrets folder
 secrets/
+
+# code review graph
+.mcp.json
+.opencode.json
