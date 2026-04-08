@@ -87,21 +87,32 @@ def fetch_pr_files(
     """
     Return the list of changed files in a PR with decoded content.
 
+    Cached by (repo_full_name, pr_number, head_sha) for 5 minutes (Principle 9).
+    Cache key changes when head_sha changes (i.e. new push to PR branch),
+    so stale content is never returned.
+
     Files that are:
     - removed (deleted in the PR)
     - binary (cannot decode as UTF-8)
     - in the skip list (handled by caller)
     are returned with empty content and should be skipped by the caller.
-
-    Args:
-        installation_id: GitHub App installation ID for the repo's owner
-        repo_full_name:  "owner/repo" string
-        pr_number:       GitHub PR number (integer)
-        head_sha:        HEAD commit SHA of the PR branch
-
-    Returns:
-        List of PrFile objects, one per changed file.
     """
+    import hashlib
+    from django.core.cache import cache
+
+    # Cache key: gh_api:{sha256(repo+pr+head_sha)} — Principle 9
+    raw_key = f"{repo_full_name}:{pr_number}:{head_sha}"
+    cache_key = f"gh_api:{hashlib.sha256(raw_key.encode()).hexdigest()}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info(
+            "pr_files_cache_hit",
+            repo=repo_full_name,
+            pr_number=pr_number,
+        )
+        return cached
+
     gh = _get_installation_client(installation_id)
     repo = gh.get_repo(repo_full_name)
     pull = repo.get_pull(pr_number)
@@ -132,6 +143,9 @@ def fetch_pr_files(
         pr_number=pr_number,
         file_count=len(pr_files),
     )
+
+    # Cache for 5 minutes — head_sha ensures staleness on new pushes (Principle 9)
+    cache.set(cache_key, pr_files, timeout=300)
     return pr_files
 
 
