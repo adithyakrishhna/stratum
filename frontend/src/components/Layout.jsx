@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, GitPullRequest, TrendingUp, Layers,
-  Flame, GitCommit, Activity, LogOut, Hexagon, Menu, X,
+  Flame, GitCommit, Activity, LogOut, Hexagon, Menu, X, GitFork,
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -15,6 +15,7 @@ const NAV = [
   { to: '/dashboard/heatmap',  icon: Flame,           label: 'Velocity Heatmap' },
   { to: '/dashboard/blame',    icon: GitCommit,       label: 'Blame Report' },
   { to: '/dashboard/pipeline', icon: Activity,        label: 'Pipeline Monitor' },
+  { to: '/dashboard/connect',  icon: GitFork,         label: 'Connect Repo', divider: true },
 ]
 
 function Sidebar({ open, onClose, user, onLogout }) {
@@ -54,9 +55,10 @@ function Sidebar({ open, onClose, user, onLogout }) {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
-          {NAV.map(({ to, icon: Icon, label }) => (
+          {NAV.map(({ to, icon: Icon, label, divider }) => (
+            <div key={to}>
+              {divider && <div className="my-2 border-t border-border-muted" />}
             <NavLink
-              key={to}
               to={to}
               end={to === '/dashboard'}
               onClick={onClose}
@@ -71,6 +73,7 @@ function Sidebar({ open, onClose, user, onLogout }) {
               <Icon size={16} strokeWidth={1.75} />
               {label}
             </NavLink>
+            </div>
           ))}
         </nav>
 

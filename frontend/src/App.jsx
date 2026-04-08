@@ -4,13 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 
-import Overview        from './pages/Overview'
-import PrReview        from './pages/PrReview'
-import DebtTimeline    from './pages/DebtTimeline'
-import ClusterMap      from './pages/ClusterMap'
-import VelocityHeatmap from './pages/VelocityHeatmap'
-import BlameReport     from './pages/BlameReport'
-import PipelineMonitor from './pages/PipelineMonitor'
+import Overview          from './pages/Overview'
+import PrReview          from './pages/PrReview'
+import DebtTimeline      from './pages/DebtTimeline'
+import ClusterMap        from './pages/ClusterMap'
+import VelocityHeatmap   from './pages/VelocityHeatmap'
+import BlameReport       from './pages/BlameReport'
+import PipelineMonitor   from './pages/PipelineMonitor'
+import ConnectRepository from './pages/ConnectRepository'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +34,7 @@ function DashboardRoutes() {
           <Route path="heatmap"          element={<VelocityHeatmap />} />
           <Route path="blame"            element={<BlameReport />} />
           <Route path="pipeline"         element={<PipelineMonitor />} />
+          <Route path="connect"          element={<ConnectRepository />} />
         </Routes>
       </Layout>
     </ProtectedRoute>
