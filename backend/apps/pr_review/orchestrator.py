@@ -174,6 +174,7 @@ def run_pr_review(
     # Step 5: Analyse each changed file
     # ------------------------------------------------------------------
     all_findings: list[_FileFinding] = []
+    all_pr_chunks: list = []   # collected for semantic duplicate detection (Step 5b)
 
     for pr_file in pr_files:
         if pr_file.status == "removed" or not pr_file.content:
@@ -188,13 +189,14 @@ def run_pr_review(
             continue
 
         try:
-            file_findings = _analyse_file(
+            file_findings, file_chunks = _analyse_file(
                 file_path=pr_file.filename,
                 content=pr_file.content,
                 language=language,
                 rules_config=rules_config,
             )
             all_findings.extend(file_findings)
+            all_pr_chunks.extend(file_chunks)
         except Exception as exc:
             logger.warning(
                 "pr_review_file_analysis_failed",
@@ -209,7 +211,59 @@ def run_pr_review(
         repo_id=repo_id,
         pr_number=pr_number,
         total_findings=len(all_findings),
+        pr_chunks_collected=len(all_pr_chunks),
     )
+
+    # ------------------------------------------------------------------
+    # Step 5b: Semantic duplicate detection (Principle 8 — skip if circuit open)
+    # ------------------------------------------------------------------
+    duplicate_matches = []
+
+    if semantic_available and all_pr_chunks:
+        try:
+            from apps.pr_review.duplicate_detector import find_semantic_duplicates
+
+            similarity_threshold = float(
+                rules_config.get("similarity_threshold", 0.85)
+            )
+            duplicate_matches = find_semantic_duplicates(
+                chunks=all_pr_chunks,
+                repo_id=repo_id,
+                similarity_threshold=similarity_threshold,
+            )
+
+            # Convert DuplicateMatch → _FileFinding so they flow through
+            # the same persist + comment pipeline as security/rule findings
+            for dm in duplicate_matches:
+                pct = int(dm.similarity * 100)
+                all_findings.append(_FileFinding(
+                    file_path=dm.file_path,
+                    line_number=dm.line_number,
+                    finding_type="duplicate",
+                    severity="medium",
+                    title=f"Duplicate logic: {dm.chunk_name} ({pct}% match)",
+                    description=(
+                        f"Function `{dm.chunk_name}` is semantically similar to "
+                        f"`{dm.similar_chunk}` in `{dm.similar_file}` "
+                        f"(line {dm.similar_line}, {pct}% similarity). "
+                        f"Consider consolidating to reduce duplication."
+                    ),
+                ))
+
+            if duplicate_matches:
+                logger.info(
+                    "pr_review_duplicates_found",
+                    repo_id=repo_id,
+                    pr_number=pr_number,
+                    count=len(duplicate_matches),
+                )
+        except Exception as exc:
+            logger.warning(
+                "pr_review_duplicate_detection_failed",
+                repo_id=repo_id,
+                pr_number=pr_number,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # Step 6: Get Groq suggestions for critical + high (cached)
@@ -232,6 +286,7 @@ def run_pr_review(
         "security":   PrFinding.FindingType.SECURITY,
         "rule":       PrFinding.FindingType.RULE,
         "complexity": PrFinding.FindingType.COMPLEXITY,
+        "duplicate":  PrFinding.FindingType.DUPLICATE,
     }
 
     for f in all_findings:
@@ -263,6 +318,7 @@ def run_pr_review(
         pr_number=pr_number,
         health_score=health_score,
         findings=all_findings,
+        duplicate_matches=duplicate_matches,
         semantic_skipped=not semantic_available,
     )
 
@@ -322,20 +378,26 @@ def _analyse_file(
     content: str,
     language: str,
     rules_config: dict,
-) -> list[_FileFinding]:
+) -> tuple[list[_FileFinding], list]:
     """
-    Run all analysis passes on a single file and return findings.
+    Run all analysis passes on a single file.
+
+    Returns:
+        (findings, chunks) — findings are PrFinding-ready objects;
+        chunks are _SimpleChunk objects carrying raw_code for semantic embedding.
 
     Passes:
       A. Security scanner (6 detectors)
       B. Forbidden import check (stratum.yaml rules)
       C. AST chunk parse → per-chunk rules (length, complexity, naming)
+         Also returns the parsed chunks for semantic duplicate detection.
     """
-    from apps.security.scanner import scan_file, SecurityFinding
-    from apps.rules.evaluator import evaluate_file_imports, evaluate_chunk, RuleViolationData
+    from apps.security.scanner import scan_file
+    from apps.rules.evaluator import evaluate_file_imports, evaluate_chunk
     from apps.parsing.language_router import get_parser
 
     findings: list[_FileFinding] = []
+    file_chunks: list = []
 
     # Pass A — Security detection
     try:
@@ -368,16 +430,16 @@ def _analyse_file(
         except Exception as exc:
             logger.warning("import_check_error", file_path=file_path, error=str(exc))
 
-    # Pass C — AST chunk rules (length, complexity, naming)
-    if rules_config:
-        try:
-            parser = get_parser(language)
-            tree = parser.parse(content.encode("utf-8"))
-            chunks = _extract_lightweight_chunks(tree, content, language, file_path)
-            for chunk in chunks:
+    # Pass C — AST chunk rules + collect chunks for semantic embedding
+    try:
+        parser = get_parser(language)
+        tree = parser.parse(content.encode("utf-8"))
+        file_chunks = _extract_lightweight_chunks(tree, content, language, file_path)
+
+        if rules_config:
+            for chunk in file_chunks:
                 chunk_violations = evaluate_chunk(chunk, rules_config)
                 for rv in chunk_violations:
-                    # Map complexity violations to their own type
                     ftype = "complexity" if "complexity" in rv.rule_name else "rule"
                     findings.append(_FileFinding(
                         file_path=rv.file_path,
@@ -387,10 +449,10 @@ def _analyse_file(
                         title=rv.message.split(".")[0],
                         description=rv.message,
                     ))
-        except Exception as exc:
-            logger.warning("chunk_rule_check_error", file_path=file_path, error=str(exc))
+    except Exception as exc:
+        logger.warning("chunk_rule_check_error", file_path=file_path, error=str(exc))
 
-    return findings
+    return findings, file_chunks
 
 
 def _extract_lightweight_chunks(tree, content: str, language: str, file_path: str) -> list:
@@ -438,7 +500,6 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
             # Lightweight complexity: count decision keywords
             complexity = _count_complexity(raw_code, language)
 
-            # Create a minimal dict that matches what evaluate_chunk expects
             chunks.append(_SimpleChunk(
                 chunk_name=chunk_name,
                 start_line=start_line,
@@ -446,6 +507,7 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
                 complexity_score=float(complexity),
                 file_path=file_path,
                 language=language,
+                raw_code=raw_code,   # captured above for embedding
             ))
 
         for child in node.children:
@@ -456,16 +518,17 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
 
 
 class _SimpleChunk:
-    """Minimal chunk object compatible with evaluate_chunk()."""
-    __slots__ = ("chunk_name", "start_line", "end_line", "complexity_score", "file_path", "language")
+    """Minimal chunk object compatible with evaluate_chunk() and duplicate_detector."""
+    __slots__ = ("chunk_name", "start_line", "end_line", "complexity_score", "file_path", "language", "raw_code")
 
-    def __init__(self, chunk_name, start_line, end_line, complexity_score, file_path, language):
+    def __init__(self, chunk_name, start_line, end_line, complexity_score, file_path, language, raw_code=""):
         self.chunk_name = chunk_name
         self.start_line = start_line
         self.end_line = end_line
         self.complexity_score = complexity_score
         self.file_path = file_path
         self.language = language
+        self.raw_code = raw_code   # needed by duplicate_detector for embedding
 
 
 def _count_complexity(code: str, language: str) -> int:
@@ -531,6 +594,7 @@ def _build_summary_body(
     pr_number: int,
     health_score: float,
     findings: list[_FileFinding],
+    duplicate_matches: list = None,
     semantic_skipped: bool = False,
 ) -> str:
     """
@@ -540,9 +604,13 @@ def _build_summary_body(
     If semantic_skipped is True (embedding circuit open), a degradation
     notice is appended so the PR author knows semantic analysis was skipped.
     """
-    # Count by severity
+    if duplicate_matches is None:
+        duplicate_matches = []
+
+    # Count by severity (exclude duplicate type from severity table — shown separately)
+    non_dup_findings = [f for f in findings if f.finding_type != "duplicate"]
     counts: dict[str, int] = {s: 0 for s in _SEVERITY_ORDER}
-    for f in findings:
+    for f in non_dup_findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
 
     score_emoji = "🟢" if health_score >= 80 else ("🟡" if health_score >= 50 else "🔴")
@@ -557,16 +625,28 @@ def _build_summary_body(
         emoji = _severity_emoji(sev)
         lines.append(f"| {emoji} {sev.capitalize()} | {counts[sev]} |")
 
-    if not findings:
-        lines += ["", "No issues found. Code looks clean!"]
-    else:
-        # List critical + high findings by file for quick navigation
-        critical_high = [f for f in findings if f.severity in ("critical", "high")]
+    if non_dup_findings:
+        critical_high = [f for f in non_dup_findings if f.severity in ("critical", "high")]
         if critical_high:
             lines += ["", "### Critical & High Priority Findings"]
             for f in sorted(critical_high, key=lambda x: x.file_path):
                 loc = f"`{f.file_path}`" + (f" line {f.line_number}" if f.line_number else "")
                 lines.append(f"- {_severity_emoji(f.severity)} **{f.title}** — {loc}")
+
+    # Duplicate logic section — the unique Stratum value
+    if duplicate_matches:
+        lines += ["", f"### Duplicate Logic Detected ({len(duplicate_matches)} match{'es' if len(duplicate_matches) != 1 else ''})"]
+        for dm in duplicate_matches[:10]:   # cap at 10 in summary
+            pct = int(dm.similarity * 100)
+            lines.append(
+                f"- `{dm.chunk_name}` in `{dm.file_path}` line {dm.line_number} — "
+                f"**{pct}% similar** to `{dm.similar_chunk}` in `{dm.similar_file}` line {dm.similar_line}"
+            )
+        if len(duplicate_matches) > 10:
+            lines.append(f"- *(and {len(duplicate_matches) - 10} more — see inline comments)*")
+
+    if not findings:
+        lines += ["", "No issues found. Code looks clean!"]
 
     # Graceful degradation notice — Principle 8
     if semantic_skipped:

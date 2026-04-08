@@ -169,8 +169,8 @@ CELERY_TASK_ANNOTATIONS = {
     'apps.clustering.*':  {'queue': 'intelligence'},
     'apps.debt.*':        {'queue': 'intelligence'},
     'apps.blame.*':       {'queue': 'intelligence'},
-    # Embedding tasks capped at 10/sec — prevents overwhelming CodeBERT
-    'embedding_service.*': {'rate_limit': '10/s'},
+    # embed_chunks capped at 10/sec — prevents overwhelming CodeBERT (Principle 3)
+    'apps.parsing.tasks.embed_chunks': {'rate_limit': '10/s'},
 }
 
 # ---------------------------------------------------------------------------
