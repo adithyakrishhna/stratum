@@ -39,8 +39,9 @@ def ingest_repository(self, repo_id: str, user_id: str = ""):
         # countdown=300: give embedding workers ~5 min to finish storing vectors
         # before DBSCAN tries to read them. Simple and effective without Celery chords.
         if summary.get("files_queued", 0) > 0:
-            _dispatch_rebuild_clusters(repo_id)
-            _dispatch_score_debt(repo_id)
+            _dispatch_rebuild_clusters(repo_id)   # countdown=300
+            _dispatch_score_debt(repo_id)          # countdown=360
+            _dispatch_compute_blame(repo_id)       # countdown=420
 
         return summary
     except Exception as exc:
@@ -125,3 +126,20 @@ def _dispatch_score_debt(repo_id: str) -> None:
         logger.info("score_repo_debt_dispatched", repo_id=repo_id, countdown_seconds=360)
     except Exception as exc:
         logger.warning("score_repo_debt_dispatch_failed", repo_id=repo_id, error=str(exc))
+
+
+def _dispatch_compute_blame(repo_id: str) -> None:
+    """
+    Dispatch compute_blame with countdown=420 — fires after clustering (300s)
+    and debt scoring (360s) have completed. Never raises.
+    """
+    try:
+        from apps.blame.tasks import compute_blame
+        compute_blame.apply_async(
+            kwargs={"repo_id": repo_id},
+            queue="intelligence",
+            countdown=420,
+        )
+        logger.info("compute_blame_dispatched", repo_id=repo_id, countdown_seconds=420)
+    except Exception as exc:
+        logger.warning("compute_blame_dispatch_failed", repo_id=repo_id, error=str(exc))
