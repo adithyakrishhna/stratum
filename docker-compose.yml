@@ -59,6 +59,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend:/app          # live code reload — no rebuild needed
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:
@@ -117,6 +118,7 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding:8001
     entrypoint: []
     volumes:
+      - ./backend:/app
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:
@@ -146,6 +148,7 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding:8001
     entrypoint: []
     volumes:
+      - ./backend:/app
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:
@@ -175,6 +178,7 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding:8001
     entrypoint: []
     volumes:
+      - ./backend:/app
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:
@@ -204,6 +208,7 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding:8001
     entrypoint: []
     volumes:
+      - ./backend:/app
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:
@@ -233,6 +238,7 @@ services:
       EMBEDDING_SERVICE_URL: http://embedding:8001
     entrypoint: []
     volumes:
+      - ./backend:/app
       - repo_clones:/repo_clones
       - ./secrets:/secrets:ro
     depends_on:

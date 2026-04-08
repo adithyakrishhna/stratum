@@ -53,6 +53,8 @@ class UserRepository(models.Model):
 
     class Meta:
         unique_together = [('user', 'repository')]
+        verbose_name = 'User Repository'
+        verbose_name_plural = 'User Repositories'
 
     def __str__(self):
         return f'{self.user} → {self.repository} ({self.role})'
