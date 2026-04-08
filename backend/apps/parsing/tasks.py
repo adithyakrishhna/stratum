@@ -100,6 +100,22 @@ def embed_chunks(self, chunk_ids: list[str], chunk_texts: list[str]):
         duration_ms=duration_ms,
     )
 
+    # Dispatch fast-path clustering per language (Stage 5 — Intelligence queue)
+    # Group successfully embedded chunk IDs by language
+    if chunks_to_update:
+        from collections import defaultdict
+        lang_to_ids: dict[str, list[str]] = defaultdict(list)
+        for chunk in chunks_to_update:
+            lang_to_ids[chunk.language].append(str(chunk.id))
+
+        repo_id = str(chunks_to_update[0].repo_id)
+        from apps.clustering.tasks import cluster_new_chunks
+        for lang, ids in lang_to_ids.items():
+            cluster_new_chunks.apply_async(
+                kwargs={"repo_id": repo_id, "language": lang, "chunk_ids": ids},
+                queue="intelligence",
+            )
+
 
 @celery_app.task(
     bind=True,

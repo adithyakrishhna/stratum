@@ -34,6 +34,13 @@ def ingest_repository(self, repo_id: str, user_id: str = ""):
     try:
         summary = run_ingestion(repo_id=repo_id, task_id=self.request.id or "")
         logger.info("ingest_task_done", repo_id=repo_id, **summary)
+
+        # Dispatch full DBSCAN rebuild per language — Stage 5 (Intelligence queue).
+        # countdown=300: give embedding workers ~5 min to finish storing vectors
+        # before DBSCAN tries to read them. Simple and effective without Celery chords.
+        if summary.get("files_queued", 0) > 0:
+            _dispatch_rebuild_clusters(repo_id)
+
         return summary
     except Exception as exc:
         if self.request.retries >= self.max_retries:
@@ -66,3 +73,36 @@ def ingest_repository(self, repo_id: str, user_id: str = ""):
         if user_id:
             from apps.repositories.rate_limiter import release_analysis_slot
             release_analysis_slot(user_id)
+
+
+def _dispatch_rebuild_clusters(repo_id: str) -> None:
+    """
+    Dispatch one rebuild_clusters task per language present in the repo.
+    countdown=300 gives embedding workers ~5 min to finish storing vectors.
+    Never raises — dispatch failure must not crash the ingestion task.
+    """
+    try:
+        from apps.parsing.models import CodeChunk
+        from apps.clustering.tasks import rebuild_clusters
+
+        languages = (
+            CodeChunk.objects
+            .filter(repo_id=repo_id, embedding__isnull=False)
+            .values_list('language', flat=True)
+            .distinct()
+        )
+
+        for lang in languages:
+            rebuild_clusters.apply_async(
+                kwargs={"repo_id": repo_id, "language": lang},
+                queue="intelligence",
+                countdown=300,
+            )
+            logger.info(
+                "rebuild_clusters_dispatched",
+                repo_id=repo_id,
+                language=lang,
+                countdown_seconds=300,
+            )
+    except Exception as exc:
+        logger.warning("rebuild_clusters_dispatch_failed", repo_id=repo_id, error=str(exc))
