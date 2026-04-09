@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Activity, RotateCcw, X } from 'lucide-react'
 
@@ -8,6 +8,7 @@ import { RepoSelector, useRepos } from '../components/RepoSelector'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const STAGE_ORDER = ['ingestion', 'parsing', 'embedding', 'storage', 'intelligence']
+const STATUS_FILTER_OPTIONS = ['all', 'completed', 'started', 'failed', 'skipped']
 
 function StageBadge({ status }) {
   const c = {
@@ -48,6 +49,22 @@ function StageRow({ event }) {
   )
 }
 
+function FilterPills({ value, options, onChange }) {
+  return (
+    <div className="flex gap-1.5 flex-wrap">
+      {options.map((o) => (
+        <button
+          key={o}
+          onClick={() => onChange(o)}
+          className={`px-2.5 py-1 rounded text-xs border transition-colors ${value === o ? 'border-accent text-accent bg-accent/10' : 'border-border text-fg-muted hover:text-fg'}`}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function PipelineMonitor() {
   const { data: reposData } = useRepos()
   const repos = reposData?.data || []
@@ -58,6 +75,9 @@ export default function PipelineMonitor() {
 
   const [liveEvents, setLiveEvents] = useState([])
   useWebSocket(repoId, (msg) => setLiveEvents((prev) => [msg, ...prev].slice(0, 20)))
+
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [stageFilter, setStageFilter]   = useState('all')
 
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({
@@ -80,7 +100,22 @@ export default function PipelineMonitor() {
   const d = data?.data
   const events = d?.events || []
   const failedTasks = d?.failed_tasks || []
-  const allEvents = liveEvents.length ? liveEvents : events
+  const baseEvents = liveEvents.length ? liveEvents : events
+
+  const stageOptions = useMemo(() => {
+    const stages = [...new Set(baseEvents.map((e) => e.stage))].filter(Boolean).sort()
+    return ['all', ...stages]
+  }, [baseEvents])
+
+  const filteredEvents = useMemo(() => {
+    return baseEvents.filter((e) => {
+      if (statusFilter !== 'all' && e.status !== statusFilter) return false
+      if (stageFilter !== 'all' && e.stage !== stageFilter) return false
+      return true
+    })
+  }, [baseEvents, statusFilter, stageFilter])
+
+  const hasActiveFilter = statusFilter !== 'all' || stageFilter !== 'all'
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
@@ -108,22 +143,42 @@ export default function PipelineMonitor() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Pipeline event log */}
           <div className="lg:col-span-2 rounded-lg border border-border bg-canvas-subtle p-4">
             <div className="text-sm font-medium text-fg mb-3 flex items-center gap-2">
               Pipeline Events
               {liveEvents.length > 0 && <span className="w-2 h-2 rounded-full bg-success animate-pulse" />}
             </div>
 
-            {allEvents.length === 0
-              ? <p className="text-sm text-fg-muted py-4 text-center">No pipeline events yet — trigger an analysis to begin.</p>
-              : <div className="max-h-96 overflow-y-auto">
-                  {allEvents.map((e) => <StageRow key={e.id || e.stage + e.created_at} event={e} />)}
+            {baseEvents.length > 0 && (
+              <div className="mb-3 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-fg-muted">Status:</span>
+                  <FilterPills value={statusFilter} options={STATUS_FILTER_OPTIONS} onChange={setStatusFilter} />
                 </div>
+                {stageOptions.length > 2 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-fg-muted">Stage:</span>
+                    <FilterPills value={stageFilter} options={stageOptions} onChange={setStageFilter} />
+                  </div>
+                )}
+                {hasActiveFilter && (
+                  <button onClick={() => { setStatusFilter('all'); setStageFilter('all') }} className="text-xs text-fg-muted hover:text-fg underline underline-offset-2">
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            )}
+
+            {baseEvents.length === 0
+              ? <p className="text-sm text-fg-muted py-4 text-center">No pipeline events yet — trigger an analysis to begin.</p>
+              : filteredEvents.length === 0
+                ? <p className="text-sm text-fg-muted py-4 text-center">No events match the current filters.</p>
+                : <div className="max-h-96 overflow-y-auto">
+                    {filteredEvents.map((e) => <StageRow key={e.id || e.stage + e.created_at} event={e} />)}
+                  </div>
             }
           </div>
 
-          {/* Failed tasks */}
           <div className="rounded-lg border border-border bg-canvas-subtle p-4">
             <div className="text-sm font-medium text-fg mb-3 flex items-center gap-2">
               Failed Tasks
