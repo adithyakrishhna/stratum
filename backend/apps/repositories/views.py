@@ -14,6 +14,26 @@ logger = structlog.get_logger(__name__)
 def current_user(request):
     """Return the authenticated user's profile for the React frontend."""
     user = request.user
+
+    # Try to get GitHub avatar and login from allauth SocialAccount
+    avatar_url = ''
+    github_login = ''
+    try:
+        from allauth.socialaccount.models import SocialAccount
+        sa = SocialAccount.objects.filter(user=user, provider='github').first()
+        if sa:
+            avatar_url = sa.extra_data.get('avatar_url', '')
+            github_login = sa.extra_data.get('login', '')
+    except Exception:
+        pass
+
+    display_name = (
+        user.get_full_name()
+        or github_login
+        or user.username
+        or user.email
+    )
+
     return JsonResponse({
         'success': True,
         'data': {
@@ -21,7 +41,9 @@ def current_user(request):
             'username': user.username,
             'email': user.email,
             'full_name': user.get_full_name(),
-            'display_name': user.get_full_name() or user.username or user.email,
+            'display_name': display_name,
+            'avatar_url': avatar_url,
+            'github_login': github_login,
         },
     })
 

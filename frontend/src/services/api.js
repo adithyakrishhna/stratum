@@ -18,15 +18,11 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Redirect to Django login on 401
+// On 401 let ProtectedRoute handle the redirect to /login.
+// Only hard-redirect for requests outside the React router context (e.g. WS).
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      window.location.href = '/accounts/login/'
-    }
-    return Promise.reject(err)
-  }
+  (err) => Promise.reject(err)
 )
 
 export default api

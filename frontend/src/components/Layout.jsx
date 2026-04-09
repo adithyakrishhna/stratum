@@ -79,8 +79,18 @@ function Sidebar({ open, onClose, user, onLogout }) {
 
         {/* User + logout */}
         <div className="px-3 py-4 border-t border-border">
-          <div className="text-xs text-fg-muted truncate mb-2 px-1">
-            {user?.display_name || '—'}
+          <div className="flex items-center gap-2.5 px-1 mb-2">
+            {user?.avatar_url
+              ? <img src={user.avatar_url} alt="" className="w-6 h-6 rounded-full shrink-0" />
+              : <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                  <span className="text-[10px] font-medium text-accent">
+                    {(user?.display_name || '?')[0].toUpperCase()}
+                  </span>
+                </div>
+            }
+            <span className="text-xs text-fg-muted truncate">
+              {user?.display_name || '—'}
+            </span>
           </div>
           <button
             onClick={onLogout}

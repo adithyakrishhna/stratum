@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import Login from './pages/Login'
 
 import Overview          from './pages/Overview'
 import PrReview          from './pages/PrReview'
@@ -47,6 +48,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/"           element={<Navigate to="/dashboard" replace />} />
+          <Route path="/login"      element={<Login />} />
           <Route path="/dashboard/*" element={<DashboardRoutes />} />
         </Routes>
       </BrowserRouter>
