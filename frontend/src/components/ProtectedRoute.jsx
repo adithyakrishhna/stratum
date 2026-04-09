@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Navigate } from 'react-router-dom'
 import api from '../services/api'
 
 function ProtectedRoute({ children }) {
@@ -16,8 +17,7 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  // api.js interceptor handles the redirect to /accounts/login/ on 401
-  if (isError) return null
+  if (isError) return <Navigate to="/login" replace />
 
   return children
 }

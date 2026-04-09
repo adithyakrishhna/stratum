@@ -222,8 +222,10 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-LOGIN_REDIRECT_URL = '/dashboard/'
-LOGOUT_REDIRECT_URL = '/'
+# In dev, OAuth callback lands on port 8000 — redirect back to Vite (5173).
+# In production, Django serves the SPA so a relative path works fine.
+LOGIN_REDIRECT_URL = 'http://localhost:5173/dashboard/' if DEBUG else '/dashboard/'
+LOGOUT_REDIRECT_URL = 'http://localhost:5173/login' if DEBUG else '/login'
 
 # ---------------------------------------------------------------------------
 # Static and media files
