@@ -4,7 +4,8 @@ Semantic Duplicate Detection for Pull Requests.
 When a PR is opened, we:
   1. Embed every function/method in the PR using CodeBERT (via embedding_client)
   2. Query pgvector for existing functions in the codebase with high cosine similarity
-  3. Return a DuplicateMatch per hit — the orchestrator converts these to PrFindings
+  3. Apply two secondary filters to eliminate CodeBERT anisotropy false positives
+  4. Return a DuplicateMatch per confirmed hit
 
 Pipeline
 --------
@@ -15,42 +16,70 @@ Pipeline
     get_embeddings_batch(all_texts)  → Redis cache + embedding service
         ↓ per-chunk pgvector ANN query (HNSW — Optimization 6)
     CodeChunk.objects.annotate(dist=CosineDistance(...)).filter(dist__lte=max_dist)
-        ↓
+        ↓ secondary filters: line-count ratio + vocabulary overlap
     list[DuplicateMatch]
+
+Why secondary filters are required
+------------------------------------
+CodeBERT (microsoft/codebert-base) is a masked-language model pre-trained for
+fill-mask tasks, not code similarity search. Its embeddings are highly anisotropic:
+ALL code in the same language clusters in a narrow cone of embedding space, so
+unrelated functions (Django views, React components) score 0.95–0.99 cosine
+similarity simply because they share the same boilerplate tokens.
+
+The cosine threshold alone cannot distinguish real duplicates from structural
+false positives. Two independent secondary signals confirm or reject each match:
+
+  1. Line-count ratio  — genuinely duplicated logic has similar code length.
+                         Functions differing by more than 2.5x are skipped.
+
+  2. Vocabulary overlap — the PR chunk's identifiers must overlap with the
+                          matched function's name and module path tokens.
+                          "list_repositories" code shares 0 tokens with
+                          "cluster_map / dashboard/views" → rejected.
+                          "embed_chunks" shares "embed" with "embed_batch" → kept.
+
+This two-signal approach works without stored raw_code (STORE_RAW_CODE=false)
+because it only reads the PR chunk's own code (always available) and uses
+chunk_name + file_path from the DB row (always stored).
 
 Similarity threshold
 --------------------
-Default 0.85 (configurable via stratum.yaml: `similarity_threshold: 0.85`)
-Cosine distance ≤ (1 - threshold) → match.
+Default 0.97 (configurable via stratum.yaml: `similarity_threshold: 0.97`)
+Cosine distance ≤ (1 - threshold) → candidate match → then secondary filters.
 With normalize_embeddings=True (our embedding service), cosine sim = dot product.
-
-Why per-chunk queries instead of a single batch query
-------------------------------------------------------
-pgvector does not support batched ANN queries in one SQL call. Each vector
-needs its own ORDER BY distance query. However, the embedding step IS batched
-(all PR chunks → one HTTP call), so the expensive part is still O(1) HTTP calls.
-The pgvector queries are fast (HNSW index, ~1ms each for millions of vectors).
 """
+import re
 from dataclasses import dataclass
 
 import structlog
 
 logger = structlog.get_logger(__name__)
 
-_DEFAULT_THRESHOLD = 0.97   # CodeBERT embeddings are anisotropic — unrelated code
-                            # often scores 0.90-0.95. Use 0.97 to surface only
-                            # near-identical logic, not structural similarity.
-_MAX_MATCHES_PER_CHUNK = 5  # top-N unique similar functions per PR chunk
+_DEFAULT_THRESHOLD = 0.97   # cosine similarity floor — then secondary filters apply
+_MAX_MATCHES_PER_CHUNK = 5  # top-N unique matches per PR chunk after all filters
 
-# Only embed functions with at least this many lines of code.
-# Short functions (React components, simple views) are dominated by
-# boilerplate tokens (import, export, return, className) and produce
-# near-identical CodeBERT embeddings regardless of actual logic.
+# Only embed functions meeting these minimums.
+# Short/trivial functions are dominated by boilerplate (import, return, className)
+# and produce identical CodeBERT embeddings regardless of actual logic.
 _MIN_LINES = 20
-
-# Only embed functions with at least this cyclomatic complexity.
-# Trivial functions (complexity 1-2) have no meaningful logic to compare.
 _MIN_COMPLEXITY = 3
+
+# Secondary filter constants
+_MAX_LINE_RATIO = 2.5   # skip match if lengths differ by more than 2.5x
+_MIN_VOCAB_OVERLAP = 1  # skip match if PR code shares 0 meaningful tokens with match context
+
+# Common keywords that appear in virtually all code — excluded from vocabulary check
+_STOP_TOKENS = {
+    'self', 'true', 'false', 'none', 'null', 'undefined', 'async', 'await',
+    'return', 'yield', 'import', 'from', 'class', 'function', 'const', 'let',
+    'var', 'elif', 'else', 'pass', 'raise', 'with', 'super', 'type', 'this',
+    'that', 'then', 'catch', 'throw', 'void', 'export', 'default', 'static',
+    'public', 'private', 'protected', 'final', 'abstract', 'interface', 'enum',
+    'string', 'number', 'boolean', 'object', 'array', 'list', 'dict', 'tuple',
+    'request', 'response', 'data', 'result', 'error', 'value', 'item', 'name',
+    'args', 'kwargs', 'params', 'config', 'settings', 'logger', 'logging',
+}
 
 
 @dataclass
@@ -69,6 +98,81 @@ class DuplicateMatch:
     similarity: float    # 0.0–1.0, higher = more similar (rounded to 4dp)
 
 
+def _is_embeddable(chunk) -> bool:
+    """
+    Return True if the chunk is worth embedding for duplicate detection.
+    Filters out short/trivial functions that produce CodeBERT false positives.
+    """
+    if not getattr(chunk, 'raw_code', None) or not chunk.raw_code.strip():
+        return False
+    line_count = getattr(chunk, 'end_line', 0) - getattr(chunk, 'start_line', 0) + 1
+    if line_count < _MIN_LINES:
+        return False
+    if getattr(chunk, 'complexity_score', 1) < _MIN_COMPLEXITY:
+        return False
+    return True
+
+
+def _passes_secondary_filters(
+    pr_chunk,
+    match_name: str,
+    match_file: str,
+    match_start: int,
+    match_end: int,
+) -> bool:
+    """
+    Secondary validation after cosine similarity passes the threshold.
+
+    Applies two independent checks to reject CodeBERT anisotropy false positives:
+
+    1. Line-count ratio: duplicated logic has similar length. If the stored function
+       is more than 2.5x longer/shorter than the PR chunk, it's a structural false
+       positive (e.g., a 30-line simple view vs a 200-line complex orchestrator).
+
+    2. Vocabulary overlap: the PR chunk's meaningful identifiers must appear in the
+       matched function's name and module path. Completely different-purpose functions
+       (repositories/views::list_repositories vs dashboard/views::cluster_map) share
+       zero domain vocabulary → rejected. Genuine duplicates share the same variable
+       names, function calls, and domain terms.
+
+    Returns True if the match should be kept, False if it should be discarded.
+    """
+    # --- Filter 1: line-count ratio ---
+    pr_lines = max(1, getattr(pr_chunk, 'end_line', 0) - getattr(pr_chunk, 'start_line', 0) + 1)
+    match_lines = max(1, (match_end or match_start) - match_start + 1)
+    line_ratio = max(pr_lines, match_lines) / min(pr_lines, match_lines)
+    if line_ratio > _MAX_LINE_RATIO:
+        return False
+
+    # --- Filter 2: vocabulary overlap ---
+    # Extract meaningful identifiers from PR chunk code (4+ chars, not stop words)
+    pr_tokens = {
+        t.lower()
+        for t in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b', pr_chunk.raw_code or '')
+    } - _STOP_TOKENS
+
+    if not pr_tokens:
+        return True  # can't verify, allow through
+
+    # Derive context tokens from the matched function's name and file path.
+    # Split snake_case and camelCase into individual words.
+    raw_ctx = ' '.join([
+        re.sub(r'([a-z])([A-Z])', r'\1 \2', match_name),    # camelCase → words
+        match_name.replace('_', ' '),                         # snake_case → words
+        match_file.replace('/', ' ').replace('_', ' ').replace('.', ' '),
+    ])
+    ctx_tokens = {
+        t.lower()
+        for t in re.findall(r'[a-zA-Z]{3,}', raw_ctx)
+    } - _STOP_TOKENS
+
+    if not ctx_tokens:
+        return True  # no context to compare against, allow through
+
+    overlap = pr_tokens & ctx_tokens
+    return len(overlap) >= _MIN_VOCAB_OVERLAP
+
+
 def find_semantic_duplicates(
     chunks: list,
     repo_id: str,
@@ -83,8 +187,8 @@ def find_semantic_duplicates(
         similarity_threshold: minimum cosine similarity [0.0, 1.0] to flag a match
 
     Returns:
-        list of DuplicateMatch — one per match found, sorted by similarity desc.
-        Empty list if circuit open, service error, or no matches.
+        list of DuplicateMatch — one per confirmed match, sorted by similarity desc.
+        Empty list if circuit open, service error, or no matches pass all filters.
 
     Never raises — all errors are caught and logged.
     """
@@ -93,20 +197,8 @@ def find_semantic_duplicates(
     from pgvector.django import CosineDistance
 
     # -----------------------------------------------------------------------
-    # Step 1: Filter to chunks worth embedding.
-    # Short or trivial functions are dominated by boilerplate tokens and
-    # produce false positives with CodeBERT regardless of threshold.
+    # Step 1: Filter to chunks worth embedding
     # -----------------------------------------------------------------------
-    def _is_embeddable(c) -> bool:
-        if not getattr(c, 'raw_code', None) or not c.raw_code.strip():
-            return False
-        line_count = getattr(c, 'end_line', 0) - getattr(c, 'start_line', 0) + 1
-        if line_count < _MIN_LINES:
-            return False
-        if getattr(c, 'complexity_score', 1) < _MIN_COMPLEXITY:
-            return False
-        return True
-
     embeddable = [c for c in chunks if _is_embeddable(c)]
 
     if not embeddable:
@@ -117,7 +209,7 @@ def find_semantic_duplicates(
     # Step 2: Batch embed ALL PR chunks in ONE call (Optimization 1 + cache)
     # -----------------------------------------------------------------------
     texts = [c.raw_code for c in embeddable]
-    vectors = get_embeddings_batch(texts)  # returns list[list[float] | None]
+    vectors = get_embeddings_batch(texts)
 
     embedded_pairs = [
         (chunk, vec)
@@ -144,7 +236,7 @@ def find_semantic_duplicates(
     # -----------------------------------------------------------------------
     # Step 3: Per-chunk pgvector ANN query via HNSW index (Optimization 6)
     # -----------------------------------------------------------------------
-    max_distance = round(1.0 - similarity_threshold, 6)  # cosine dist = 1 - sim
+    max_distance = round(1.0 - similarity_threshold, 6)
     all_matches: list[DuplicateMatch] = []
 
     for chunk, vector in embedded_pairs:
@@ -156,22 +248,32 @@ def find_semantic_duplicates(
                     language=chunk.language,
                     embedding__isnull=False,
                 )
-                # Exclude the same file — we only care about cross-file duplicates
                 .exclude(file_path=chunk.file_path)
                 .annotate(dist=CosineDistance('embedding', vector))
                 .filter(dist__lte=max_distance)
                 .order_by('dist')
-                .values('file_path', 'chunk_name', 'start_line', 'dist')
+                .values('file_path', 'chunk_name', 'start_line', 'end_line', 'dist')
             )
 
-            # Deduplicate by (file_path, chunk_name): the same function is stored
-            # once per commit it appeared in, so without deduplication the same
-            # match appears N times (once per commit). Keep only the closest hit.
+            # Deduplicate by (file_path, chunk_name) — same function stored once
+            # per commit produces N identical matches without this guard.
             seen_targets: set[tuple[str, str]] = set()
+
             for row in rows:
                 key = (row['file_path'], row['chunk_name'])
                 if key in seen_targets:
                     continue
+
+                # Apply secondary filters before accepting the match
+                if not _passes_secondary_filters(
+                    pr_chunk=chunk,
+                    match_name=row['chunk_name'],
+                    match_file=row['file_path'],
+                    match_start=row['start_line'],
+                    match_end=row.get('end_line') or row['start_line'],
+                ):
+                    continue
+
                 seen_targets.add(key)
                 similarity = round(1.0 - float(row['dist']), 4)
                 all_matches.append(DuplicateMatch(
@@ -183,6 +285,7 @@ def find_semantic_duplicates(
                     similar_line=row['start_line'],
                     similarity=similarity,
                 ))
+
                 if len(seen_targets) >= _MAX_MATCHES_PER_CHUNK:
                     break
 
@@ -195,7 +298,6 @@ def find_semantic_duplicates(
             )
             continue
 
-    # Sort highest similarity first
     all_matches.sort(key=lambda m: m.similarity, reverse=True)
 
     logger.info(
