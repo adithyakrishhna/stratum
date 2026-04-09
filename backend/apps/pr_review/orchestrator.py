@@ -219,7 +219,15 @@ def run_pr_review(
     # ------------------------------------------------------------------
     duplicate_matches = []
 
-    if semantic_available and all_pr_chunks:
+    # Duplicate detection is OFF by default.
+    # CodeBERT (the embedding model) produces high anisotropy: all Python/JS
+    # functions in the same codebase score 0.97-0.99 cosine similarity due to
+    # shared boilerplate tokens, causing near-100% false-positive rates.
+    # Enable with `enable_duplicate_detection: true` in stratum.yaml once a
+    # code-similarity-specific model (e.g. microsoft/unixcoder-base) is in use.
+    duplicate_detection_enabled = bool(rules_config.get("enable_duplicate_detection", False))
+
+    if semantic_available and all_pr_chunks and duplicate_detection_enabled:
         try:
             from apps.pr_review.duplicate_detector import find_semantic_duplicates
 
