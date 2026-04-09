@@ -14,7 +14,9 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-insecure-change-me-in-prod
 
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# In DEBUG mode accept any host — eliminates the need to update this every time
+# a Cloudflare/ngrok tunnel URL changes. Safe for local dev only.
+ALLOWED_HOSTS = ['*'] if DEBUG else os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # ---------------------------------------------------------------------------
 # Application definition
