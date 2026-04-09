@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { GitCommit, Download } from 'lucide-react'
+import { GitCommit, Download, ExternalLink } from 'lucide-react'
 
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
@@ -27,6 +27,9 @@ export default function BlameReport() {
   const ids = repos.map((r) => r.id)
   const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
   const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+
+  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
+  const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
 
   const { data, isLoading } = useQuery({
     queryKey: ['blame', repoId],
@@ -91,7 +94,14 @@ export default function BlameReport() {
                   {entries.map((e) => (
                     <tr key={e.full_sha} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="font-mono text-xs text-accent">{e.commit_sha}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs text-accent">{e.commit_sha}</span>
+                          {ghCommitUrl(e.full_sha) && (
+                            <a href={ghCommitUrl(e.full_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
                         <div className="text-xs text-fg-muted mt-0.5 max-w-[180px] truncate" title={e.message}>{e.message}</div>
                       </td>
                       <td className="px-4 py-3 text-fg-muted hidden md:table-cell">

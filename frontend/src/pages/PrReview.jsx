@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { GitPullRequest } from 'lucide-react'
+import { GitPullRequest, ExternalLink } from 'lucide-react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
@@ -40,6 +40,9 @@ export default function PrReview() {
   const ids = repos.map((r) => r.id)
   const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
   const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+
+  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
+  const ghPrUrl = (num) => repoFullName ? `https://github.com/${repoFullName}/pull/${num}` : null
 
   const { data, isLoading } = useQuery({
     queryKey: ['prs', repoId],
@@ -94,7 +97,14 @@ export default function PrReview() {
                     return (
                       <tr key={pr.id} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
                         <td className="px-4 py-3">
-                          <div className="font-medium text-fg truncate max-w-[200px]" title={pr.title}>#{pr.github_pr_number} {pr.title}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-fg truncate max-w-[180px]" title={pr.title}>#{pr.github_pr_number} {pr.title}</span>
+                            {ghPrUrl(pr.github_pr_number) && (
+                              <a href={ghPrUrl(pr.github_pr_number)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
+                                <ExternalLink size={12} />
+                              </a>
+                            )}
+                          </div>
                           <div className="text-xs text-fg-muted mt-0.5 font-mono">{pr.head_branch}</div>
                         </td>
                         <td className="px-4 py-3 text-fg-muted hidden md:table-cell">{pr.author}</td>
