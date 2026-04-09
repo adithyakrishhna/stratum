@@ -82,8 +82,7 @@ export default function VelocityHeatmap() {
   const hasActiveFilter = search || statusFilter !== 'all' || sort !== 'velocity_desc'
 
   const handleFileClick = (filePath) => {
-    localStorage.setItem('stratum_debt_file', filePath)
-    navigate('/dashboard/debt')
+    navigate('/dashboard/debt', { state: { filePath } })
   }
 
   return (
