@@ -68,18 +68,7 @@ def list_repositories(request):
 
     repos = []
     for ur in user_repos:
-        repo = ur.repository
-        repos.append({
-            'id': str(repo.id),
-            'full_name': repo.full_name,
-            'owner': repo.owner,
-            'name': repo.name,
-            'is_private': repo.is_private,
-            'default_branch': repo.default_branch,
-            'analysis_status': repo.analysis_status,
-            'last_analyzed_commit': repo.last_analyzed_commit,
-            'role': ur.role,
-        })
+        repos.append(_repo_dict(ur.repository, ur.role))
 
     return JsonResponse({
         'success': True,
@@ -352,6 +341,47 @@ def connect_repository(request):
 
 @login_required
 @require_POST
+def toggle_pr_review(request, repo_id):
+    """
+    Toggle PR review on/off for a repository.
+
+    When disabled, Stratum skips posting review comments on new PRs.
+    Analysis still runs — the flag only controls whether comments are posted.
+    """
+    from .models import UserRepository
+
+    try:
+        ur = UserRepository.objects.select_related('repository').get(
+            user=request.user,
+            repository_id=repo_id,
+        )
+    except UserRepository.DoesNotExist:
+        return JsonResponse(
+            {'success': False, 'error': 'Repository not found or access denied.', 'data': None, 'meta': {}},
+            status=404,
+        )
+
+    repo = ur.repository
+    repo.pr_review_enabled = not repo.pr_review_enabled
+    repo.save(update_fields=['pr_review_enabled'])
+
+    logger.info(
+        'pr_review_toggled',
+        repo_id=str(repo.id),
+        pr_review_enabled=repo.pr_review_enabled,
+        user_id=str(request.user.id),
+    )
+
+    return JsonResponse({
+        'success': True,
+        'data': {'pr_review_enabled': repo.pr_review_enabled},
+        'meta': {},
+        'error': None,
+    })
+
+
+@login_required
+@require_POST
 def disconnect_repository(request, repo_id):
     """Remove the UserRepository link (does not delete the repo or its data)."""
     from .models import UserRepository
@@ -434,5 +464,6 @@ def _repo_dict(repo, role):
         'default_branch': repo.default_branch,
         'analysis_status': repo.analysis_status,
         'last_analyzed_commit': repo.last_analyzed_commit,
+        'pr_review_enabled': repo.pr_review_enabled,
         'role': role,
     }

@@ -22,6 +22,10 @@ class Repository(models.Model):
     default_branch = models.CharField(max_length=255, default='main')
     github_app_installation_id = models.IntegerField(null=True, blank=True)
     last_analyzed_commit = models.CharField(max_length=40, null=True, blank=True)
+    pr_review_enabled = models.BooleanField(
+        default=True,
+        help_text="When False, Stratum will not comment on new PRs for this repository.",
+    )
     analysis_status = models.CharField(
         max_length=20,
         choices=AnalysisStatus.choices,
