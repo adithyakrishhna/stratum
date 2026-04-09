@@ -55,7 +55,7 @@ def github_webhook(request):
     # --- pull_request: queue for PR review (highest-priority queue) ---
     if event == "pull_request":
         action = payload.get("action", "")
-        if action in ("opened", "reopened", "synchronize"):
+        if action in ("opened", "reopened", "synchronize", "closed"):
             handle_pull_request_event.apply_async(
                 args=[payload],
                 queue="pr_priority",

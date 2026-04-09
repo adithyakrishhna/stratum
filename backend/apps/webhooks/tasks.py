@@ -67,6 +67,25 @@ def handle_pull_request_event(self, payload: dict):
             github_app_installation_id=installation_id
         )
 
+    # Handle PR closed/merged — just update status, no full review needed
+    if action == "closed":
+        from apps.pr_review.models import PullRequest
+
+        new_status = (
+            PullRequest.Status.MERGED if pr_data.get("merged") else PullRequest.Status.CLOSED
+        )
+        updated = PullRequest.objects.filter(
+            repo=repo, github_pr_number=pr_number
+        ).update(status=new_status)
+        logger.info(
+            "pr_task_status_updated",
+            repo_id=str(repo.id),
+            pr_number=pr_number,
+            new_status=new_status,
+            updated=updated,
+        )
+        return
+
     logger.info(
         "pr_task_dispatching_review",
         repo_id=str(repo.id),

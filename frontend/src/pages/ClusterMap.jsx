@@ -12,9 +12,15 @@ import { RepoSelector, useRepos } from '../components/RepoSelector'
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend)
 
 function growthColor(rate) {
-  if (rate >= 0.30) return 'rgba(248,81,73,0.8)'   // red — fast growing
-  if (rate >= 0.10) return 'rgba(210,153,34,0.8)'   // amber
-  return 'rgba(88,166,255,0.6)'                      // blue — stable
+  if (rate >= 0.30) return 'rgba(248,81,73,0.8)'
+  if (rate >= 0.10) return 'rgba(210,153,34,0.8)'
+  return 'rgba(88,166,255,0.6)'
+}
+
+function GrowthBadge({ rate }) {
+  const pct = Math.round((rate || 0) * 100)
+  const cls = rate >= 0.3 ? 'text-danger font-medium' : rate >= 0.1 ? 'text-warning' : 'text-success'
+  return <span className={`text-xs font-mono ${cls}`}>{pct}%</span>
 }
 
 const SORT_OPTIONS = [
@@ -48,6 +54,7 @@ export default function ClusterMap() {
 
   const allClusters = data?.data || []
   const languages = [...new Set(allClusters.map((c) => c.language))].sort()
+  const flagged = allClusters.filter((c) => c.is_flagged).length
 
   const clusters = useMemo(() => {
     let result = allClusters.filter((c) => {
@@ -65,8 +72,6 @@ export default function ClusterMap() {
     })
     return result
   }, [allClusters, langFilter, flaggedOnly, sort])
-
-  const flagged = allClusters.filter((c) => c.is_flagged).length
 
   const chartData = {
     datasets: [{
@@ -117,7 +122,7 @@ export default function ClusterMap() {
       <PageHeader
         icon={Layers}
         title="Semantic Cluster Map"
-        subtitle="Bubble size = growth rate. Red = fast growing anti-pattern. Click a bubble for details."
+        subtitle="Bubble size = growth rate. Red = fast growing anti-pattern. Click a bubble or row for details."
         right={<RepoSelector value={repoId} onChange={handleRepoChange} />}
       />
 
@@ -158,7 +163,7 @@ export default function ClusterMap() {
                 className="h-8 px-2 text-xs rounded-md bg-canvas-subtle border border-border text-fg focus:outline-none focus:border-accent"
               >
                 {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
+            </select>
             </div>
           </div>
         )}
@@ -167,47 +172,95 @@ export default function ClusterMap() {
           ? <div className="text-center py-20 text-fg-muted text-sm">No clusters yet — run a full analysis first.</div>
           : clusters.length === 0
             ? <div className="text-center py-20 text-fg-muted text-sm">No clusters match the current filters.</div>
-            : <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="lg:col-span-2 rounded-lg border border-border bg-canvas-subtle p-4">
-                  <div className="h-80">
-                    <Bubble data={chartData} options={options} />
+            : <>
+                {/* Chart + detail panel */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                  <div className="lg:col-span-2 rounded-lg border border-border bg-canvas-subtle p-4">
+                    <div className="h-80">
+                      <Bubble data={chartData} options={options} />
+                    </div>
+                    <div className="flex items-center gap-4 mt-3 text-xs text-fg-muted">
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-accent/60 inline-block" />Stable</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-warning inline-block" />Growing (&gt;10%)</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-danger inline-block" />Fast growing (&gt;30%)</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 mt-3 text-xs text-fg-muted">
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-accent/60 inline-block" />Stable</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-warning inline-block" />Growing (&gt;10%)</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-danger inline-block" />Fast growing (&gt;30%)</span>
+
+                  <div className="rounded-lg border border-border bg-canvas-subtle p-4">
+                    <div className="text-sm font-medium text-fg mb-3">
+                      {selected ? 'Cluster Detail' : 'Click a bubble or row to inspect'}
+                    </div>
+                    {selected
+                      ? <div className="space-y-3 text-sm">
+                          <div><span className="text-fg-muted">Pattern:</span> <span className="text-fg font-medium">{selected.label}</span></div>
+                          <div><span className="text-fg-muted">Language:</span> <span className="text-fg">{selected.language}</span></div>
+                          <div><span className="text-fg-muted">Files affected:</span> <span className="text-fg">{selected.file_count}</span></div>
+                          <div><span className="text-fg-muted">Functions:</span> <span className="text-fg">{selected.chunk_count}</span></div>
+                          <div><span className="text-fg-muted">Growth rate:</span> <GrowthBadge rate={selected.growth_rate} /></div>
+                          {selected.origin_commit_sha && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-fg-muted">Origin commit:</span>
+                              <span className="font-mono text-xs text-fg">{selected.origin_commit_sha}</span>
+                              {ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha) && (
+                                <a href={ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent" title="Open on GitHub">
+                                  <ExternalLink size={11} />
+                                </a>
+                              )}
+                            </div>
+                          )}
+                          {selected.first_seen_at && <div><span className="text-fg-muted">First seen:</span> <span className="text-fg">{new Date(selected.first_seen_at).toLocaleDateString()}</span></div>}
+                          {selected.is_flagged && <div className="mt-2 px-3 py-2 rounded bg-danger-subtle text-danger text-xs">⚠ Flagged as spreading anti-pattern</div>}
+                        </div>
+                      : <p className="text-fg-subtle text-sm">Select a cluster bubble or a row in the table below to see its details, origin commit, and growth history.</p>
+                    }
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-border bg-canvas-subtle p-4">
-                  <div className="text-sm font-medium text-fg mb-3">
-                    {selected ? 'Cluster Detail' : 'Click a bubble to inspect'}
+                {/* Cluster list table */}
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="px-4 py-2 bg-canvas-subtle border-b border-border text-xs text-fg-muted">
+                    {clusters.length} cluster{clusters.length !== 1 ? 's' : ''}{flaggedOnly || langFilter ? ` (filtered from ${allClusters.length})` : ''}
                   </div>
-                  {selected
-                    ? <div className="space-y-3 text-sm">
-                        <div><span className="text-fg-muted">Pattern:</span> <span className="text-fg font-medium">{selected.label}</span></div>
-                        <div><span className="text-fg-muted">Language:</span> <span className="text-fg">{selected.language}</span></div>
-                        <div><span className="text-fg-muted">Files affected:</span> <span className="text-fg">{selected.file_count}</span></div>
-                        <div><span className="text-fg-muted">Functions:</span> <span className="text-fg">{selected.chunk_count}</span></div>
-                        <div><span className="text-fg-muted">Growth rate:</span> <span className={selected.growth_rate >= 0.3 ? 'text-danger font-medium' : selected.growth_rate >= 0.1 ? 'text-warning' : 'text-success'}>{Math.round((selected.growth_rate || 0) * 100)}%</span></div>
-                        {selected.origin_commit_sha && (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-fg-muted">Origin commit:</span>
-                            <span className="font-mono text-xs text-fg">{selected.origin_commit_sha}</span>
-                            {ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha) && (
-                              <a href={ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent" title="Open on GitHub">
-                                <ExternalLink size={11} />
-                              </a>
-                            )}
-                          </div>
-                        )}
-                        {selected.first_seen_at && <div><span className="text-fg-muted">First seen:</span> <span className="text-fg">{new Date(selected.first_seen_at).toLocaleDateString()}</span></div>}
-                        {selected.is_flagged && <div className="mt-2 px-3 py-2 rounded bg-danger-subtle text-danger text-xs">⚠ Flagged as spreading anti-pattern</div>}
-                      </div>
-                    : <p className="text-fg-subtle text-sm">Select a cluster bubble to see its details, origin commit, and growth history.</p>
-                  }
+                  <table className="w-full text-sm">
+                    <thead className="bg-canvas-subtle border-b border-border">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium">Pattern</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium hidden sm:table-cell">Language</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium hidden md:table-cell">Files</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium hidden md:table-cell">Functions</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium">Growth</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium hidden lg:table-cell">First Seen</th>
+                        <th className="px-4 py-2.5 text-left text-fg-subtle font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clusters.map((c) => (
+                        <tr
+                          key={c.id || c.label}
+                          onClick={() => setSelected(c)}
+                          className={`border-b border-border-muted last:border-0 cursor-pointer transition-colors ${selected?.label === c.label ? 'bg-accent/5' : 'hover:bg-border-muted/20'}`}
+                        >
+                          <td className="px-4 py-2.5">
+                            <span className="text-fg font-medium text-xs">{c.label}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-fg-muted text-xs hidden sm:table-cell">{c.language}</td>
+                          <td className="px-4 py-2.5 text-fg-muted text-xs hidden md:table-cell">{c.file_count}</td>
+                          <td className="px-4 py-2.5 text-fg-muted text-xs hidden md:table-cell">{c.chunk_count}</td>
+                          <td className="px-4 py-2.5"><GrowthBadge rate={c.growth_rate} /></td>
+                          <td className="px-4 py-2.5 text-fg-muted text-xs hidden lg:table-cell">
+                            {c.first_seen_at ? new Date(c.first_seen_at).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {c.is_flagged
+                              ? <span className="text-xs px-2 py-0.5 rounded bg-danger-subtle text-danger">⚠ flagged</span>
+                              : <span className="text-xs text-fg-subtle">normal</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              </>
         }
       </>}
     </div>
