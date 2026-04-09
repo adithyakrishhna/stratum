@@ -34,7 +34,7 @@ urlpatterns = [
     path('api/clusters/', include('apps.clustering.urls')),
     path('api/blame/', include('apps.blame.urls')),
     path('api/dashboard/', include('apps.dashboard.urls')),
-    path('webhooks/', include('apps.webhooks.urls')),
+    path('api/webhooks/', include('apps.webhooks.urls')),
 
     # Catch-all — must be last. Serves React SPA for all non-API routes.
     re_path(r'^.*$', serve_spa),

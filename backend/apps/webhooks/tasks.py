@@ -46,7 +46,12 @@ def handle_pull_request_event(self, payload: dict):
         )
         return
 
-    installation_id = repo.github_app_installation_id
+    # Prefer installation_id from the webhook payload (always present for App events).
+    # Fall back to the value stored on the repo for older records.
+    installation_id = (
+        payload.get("installation", {}).get("id")
+        or repo.github_app_installation_id
+    )
     if not installation_id:
         logger.warning(
             "pr_task_no_installation_id",
@@ -55,6 +60,12 @@ def handle_pull_request_event(self, payload: dict):
             pr_number=pr_number,
         )
         return
+
+    # Keep the repo record up to date
+    if installation_id and repo.github_app_installation_id != installation_id:
+        Repository.objects.filter(id=repo.id).update(
+            github_app_installation_id=installation_id
+        )
 
     logger.info(
         "pr_task_dispatching_review",

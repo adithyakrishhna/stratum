@@ -23,7 +23,7 @@ def get_installation_token(installation_id: int) -> str:
     then exchanges it for an installation token scoped to the given installation.
     """
     private_key = _load_private_key()
-    auth = Auth.AppAuth(int(settings.GITHUB_APP_ID), private_key)
+    auth = Auth.AppAuth(str(settings.GITHUB_APP_ID).strip(), private_key)
     integration = GithubIntegration(auth=auth)
     token = integration.get_access_token(installation_id)
     logger.info("github_installation_token_generated", installation_id=installation_id)

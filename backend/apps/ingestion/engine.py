@@ -122,7 +122,8 @@ def _get_or_clone(repo: Repository) -> gitpython.Repo:
     if clone_path.exists():
         try:
             git_repo = gitpython.Repo(clone_path)
-            git_repo.remotes.origin.fetch()
+            with git_repo.git.custom_environment(GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='echo'):
+                git_repo.remotes.origin.fetch()
             logger.info("repo_fetched", repo=repo.full_name, path=str(clone_path))
             return git_repo
         except Exception as exc:
@@ -135,16 +136,33 @@ def _get_or_clone(repo: Repository) -> gitpython.Repo:
     clone_path.mkdir(parents=True, exist_ok=True)
 
     if repo.github_app_installation_id:
+        # GitHub App installation token (preferred for production)
         clone_url = get_authenticated_clone_url(repo.full_name, repo.github_app_installation_id)
     else:
-        clone_url = f"https://github.com/{repo.full_name}.git"
+        from django.conf import settings
+        pat = getattr(settings, 'GITHUB_PERSONAL_ACCESS_TOKEN', '') or ''
+        if pat:
+            # PAT fallback — works for private repos during dev / self-hosted setups
+            clone_url = f"https://x-access-token:{pat}@github.com/{repo.full_name}.git"
+            logger.info("repo_clone_using_pat", repo=repo.full_name)
+        else:
+            # Public repos only — no credentials
+            clone_url = f"https://github.com/{repo.full_name}.git"
 
     # Principle 7: validate URL before any network call
     if not ("github.com/" in clone_url and clone_url.startswith("https://")):
         raise ValueError(f"Refusing to clone: URL does not start with https://github.com/")
 
+    # Disable interactive credential prompts inside Docker (no TTY available).
+    # GIT_TERMINAL_PROMPT=0  → never prompt for username/password
+    # GIT_ASKPASS=echo       → return empty string to any credential question
+    _no_prompt_env = {
+        'GIT_TERMINAL_PROMPT': '0',
+        'GIT_ASKPASS': 'echo',
+    }
+
     logger.info("repo_cloning", repo=repo.full_name)
-    git_repo = gitpython.Repo.clone_from(clone_url, clone_path)
+    git_repo = gitpython.Repo.clone_from(clone_url, clone_path, env=_no_prompt_env)
     logger.info("repo_cloned", repo=repo.full_name, path=str(clone_path))
     return git_repo
 

@@ -266,6 +266,19 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True   # required to pass Django session cookie
 CORS_URLS_REGEX = r'^/api/.*$'  # only API routes need CORS headers
 
+# Django CSRF — must include all origins that POST to Django from a browser
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    *[
+        f'https://{h}'
+        for h in os.environ.get('ALLOWED_HOSTS', '').split(',')
+        if '.' in h and 'localhost' not in h and '127.0.0.1' not in h
+    ],
+]
+
 # ---------------------------------------------------------------------------
 # Structured logging — structlog
 # ---------------------------------------------------------------------------
@@ -341,6 +354,9 @@ GITHUB_APP_PRIVATE_KEY_PATH = os.environ.get('GITHUB_APP_PRIVATE_KEY_PATH', '')
 GITHUB_WEBHOOK_SECRET = os.environ.get('GITHUB_WEBHOOK_SECRET', '')
 GITHUB_OAUTH_CLIENT_ID = os.environ.get('GITHUB_OAUTH_CLIENT_ID', '')
 GITHUB_OAUTH_CLIENT_SECRET = os.environ.get('GITHUB_OAUTH_CLIENT_SECRET', '')
+# Optional: Personal Access Token for cloning private repos without GitHub App installation
+# Required scopes: repo (for private repos)
+GITHUB_PERSONAL_ACCESS_TOKEN = os.environ.get('GITHUB_PERSONAL_ACCESS_TOKEN', '')
 
 # ---------------------------------------------------------------------------
 # Groq API (LLM fix suggestions)
