@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { GitPullRequest, ExternalLink, Search } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { GitPullRequest, ExternalLink, Search, PauseCircle, PlayCircle } from 'lucide-react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
@@ -53,6 +53,7 @@ function FilterPills({ value, options, onChange }) {
 }
 
 export default function PrReview() {
+  const qc = useQueryClient()
   const { data: reposData } = useRepos()
   const repos = reposData?.data || []
   const stored = localStorage.getItem('stratum_repo_id')
@@ -60,12 +61,24 @@ export default function PrReview() {
   const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
   const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
 
-  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
+  const currentRepo = repos.find((r) => r.id === repoId)
+  const repoFullName = currentRepo?.full_name || ''
+  const prReviewEnabled = currentRepo?.pr_review_enabled ?? true
   const ghPrUrl = (num) => repoFullName ? `https://github.com/${repoFullName}/pull/${num}` : null
 
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatus] = useState('all')
   const [sevFilter, setSev]       = useState('all')
+
+  const toggleMutation = useMutation({
+    mutationFn: () => api.post(`/repositories/${repoId}/toggle-pr-review/`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['repos'] })
+    },
+    onError: (err) => {
+      console.error('toggle-pr-review failed:', err?.response?.data || err.message)
+    },
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['prs', repoId],
@@ -96,10 +109,43 @@ export default function PrReview() {
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
-      <PageHeader icon={GitPullRequest} title="PR Review Center" subtitle="All pull requests, findings breakdown, and debt impact per PR." right={<RepoSelector value={repoId} onChange={handleRepoChange} />} />
+      <PageHeader
+        icon={GitPullRequest}
+        title="PR Review Center"
+        subtitle="All pull requests, findings breakdown, and debt impact per PR."
+        right={
+          <div className="flex items-center gap-3">
+            <RepoSelector value={repoId} onChange={handleRepoChange} />
+            {repoId && (
+              <button
+                onClick={() => toggleMutation.mutate()}
+                disabled={toggleMutation.isPending}
+                title={prReviewEnabled ? 'Pause PR review — Stratum will stop commenting on new PRs' : 'Resume PR review'}
+                className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-xs border transition-colors disabled:opacity-50 ${
+                  prReviewEnabled
+                    ? 'border-border text-fg-muted hover:border-warning hover:text-warning'
+                    : 'border-warning text-warning bg-warning/10 hover:bg-warning/20'
+                }`}
+              >
+                {prReviewEnabled
+                  ? <><PauseCircle size={13} /> Pause review</>
+                  : <><PlayCircle size={13} /> Resume review</>
+                }
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {!repoId && <div className="text-center py-20 text-fg-muted text-sm">Select a repository.</div>}
       {repoId && isLoading && <div className="flex justify-center py-20"><div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>}
+
+      {repoId && !prReviewEnabled && (
+        <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-lg border border-warning/40 bg-warning/5 text-warning text-sm">
+          <PauseCircle size={16} className="shrink-0" />
+          <span>PR review is <strong>paused</strong> for this repository. Stratum will not comment on new pull requests. Use the <strong>Resume review</strong> button above to re-enable.</span>
+        </div>
+      )}
 
       {!isLoading && repoId && <>
         <div className="grid grid-cols-3 gap-3 mb-6">

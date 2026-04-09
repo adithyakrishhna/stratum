@@ -67,6 +67,15 @@ def handle_pull_request_event(self, payload: dict):
             github_app_installation_id=installation_id
         )
 
+    # Respect the per-repo PR review toggle
+    if not repo.pr_review_enabled:
+        logger.info(
+            "pr_review_skipped_disabled",
+            repo_id=str(repo.id),
+            pr_number=pr_number,
+        )
+        return
+
     # Handle PR closed/merged — just update status, no full review needed
     if action == "closed":
         from apps.pr_review.models import PullRequest
