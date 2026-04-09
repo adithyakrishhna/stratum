@@ -42,6 +42,16 @@ _DEFAULT_THRESHOLD = 0.97   # CodeBERT embeddings are anisotropic — unrelated 
                             # near-identical logic, not structural similarity.
 _MAX_MATCHES_PER_CHUNK = 5  # top-N unique similar functions per PR chunk
 
+# Only embed functions with at least this many lines of code.
+# Short functions (React components, simple views) are dominated by
+# boilerplate tokens (import, export, return, className) and produce
+# near-identical CodeBERT embeddings regardless of actual logic.
+_MIN_LINES = 20
+
+# Only embed functions with at least this cyclomatic complexity.
+# Trivial functions (complexity 1-2) have no meaningful logic to compare.
+_MIN_COMPLEXITY = 3
+
 
 @dataclass
 class DuplicateMatch:
@@ -83,9 +93,21 @@ def find_semantic_duplicates(
     from pgvector.django import CosineDistance
 
     # -----------------------------------------------------------------------
-    # Step 1: Filter to chunks that have embeddable code
+    # Step 1: Filter to chunks worth embedding.
+    # Short or trivial functions are dominated by boilerplate tokens and
+    # produce false positives with CodeBERT regardless of threshold.
     # -----------------------------------------------------------------------
-    embeddable = [c for c in chunks if getattr(c, 'raw_code', None) and c.raw_code.strip()]
+    def _is_embeddable(c) -> bool:
+        if not getattr(c, 'raw_code', None) or not c.raw_code.strip():
+            return False
+        line_count = getattr(c, 'end_line', 0) - getattr(c, 'start_line', 0) + 1
+        if line_count < _MIN_LINES:
+            return False
+        if getattr(c, 'complexity_score', 1) < _MIN_COMPLEXITY:
+            return False
+        return True
+
+    embeddable = [c for c in chunks if _is_embeddable(c)]
 
     if not embeddable:
         logger.debug("duplicate_detection_no_chunks", repo_id=repo_id)

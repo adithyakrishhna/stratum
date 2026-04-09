@@ -224,7 +224,7 @@ def run_pr_review(
             from apps.pr_review.duplicate_detector import find_semantic_duplicates
 
             similarity_threshold = float(
-                rules_config.get("similarity_threshold", 0.85)
+                rules_config.get("similarity_threshold", 0.97)
             )
             duplicate_matches = find_semantic_duplicates(
                 chunks=all_pr_chunks,
