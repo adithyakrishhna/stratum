@@ -37,8 +37,10 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-_DEFAULT_THRESHOLD = 0.85   # minimum cosine similarity to flag as duplicate
-_MAX_MATCHES_PER_CHUNK = 3  # top-N similar functions per PR chunk
+_DEFAULT_THRESHOLD = 0.97   # CodeBERT embeddings are anisotropic — unrelated code
+                            # often scores 0.90-0.95. Use 0.97 to surface only
+                            # near-identical logic, not structural similarity.
+_MAX_MATCHES_PER_CHUNK = 5  # top-N unique similar functions per PR chunk
 
 
 @dataclass
@@ -138,10 +140,17 @@ def find_semantic_duplicates(
                 .filter(dist__lte=max_distance)
                 .order_by('dist')
                 .values('file_path', 'chunk_name', 'start_line', 'dist')
-                [:_MAX_MATCHES_PER_CHUNK]
             )
 
+            # Deduplicate by (file_path, chunk_name): the same function is stored
+            # once per commit it appeared in, so without deduplication the same
+            # match appears N times (once per commit). Keep only the closest hit.
+            seen_targets: set[tuple[str, str]] = set()
             for row in rows:
+                key = (row['file_path'], row['chunk_name'])
+                if key in seen_targets:
+                    continue
+                seen_targets.add(key)
                 similarity = round(1.0 - float(row['dist']), 4)
                 all_matches.append(DuplicateMatch(
                     file_path=chunk.file_path,
@@ -152,6 +161,8 @@ def find_semantic_duplicates(
                     similar_line=row['start_line'],
                     similarity=similarity,
                 ))
+                if len(seen_targets) >= _MAX_MATCHES_PER_CHUNK:
+                    break
 
         except Exception as exc:
             logger.warning(
