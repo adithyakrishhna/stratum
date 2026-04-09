@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { GitCommit, Download, ExternalLink } from 'lucide-react'
+import { GitCommit, Download, ExternalLink, Search, ArrowUpDown } from 'lucide-react'
 
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
@@ -20,6 +20,14 @@ function DebtBar({ score, max }) {
   )
 }
 
+const SORT_OPTIONS = [
+  { value: 'debt_desc',     label: 'Debt Score ↓' },
+  { value: 'debt_asc',      label: 'Debt Score ↑' },
+  { value: 'date_desc',     label: 'Date (newest)' },
+  { value: 'date_asc',      label: 'Date (oldest)' },
+  { value: 'patterns_desc', label: 'Patterns ↓' },
+]
+
 export default function BlameReport() {
   const { data: reposData } = useRepos()
   const repos = reposData?.data || []
@@ -31,15 +39,44 @@ export default function BlameReport() {
   const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
   const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
 
+  const [search, setSearch] = useState('')
+  const [sort, setSort]     = useState('debt_desc')
+
   const { data, isLoading } = useQuery({
     queryKey: ['blame', repoId],
     queryFn: () => api.get(`/dashboard/${repoId}/blame/`).then((r) => r.data),
     enabled: !!repoId,
   })
 
-  const entries = data?.data || []
-  const maxScore = entries.length ? entries[0].debt_introduced_score : 0
-  const totalPatterns = entries.reduce((s, e) => s + e.patterns_originated, 0)
+  const allEntries = data?.data || []
+  const maxScore = allEntries.length ? allEntries[0].debt_introduced_score : 0
+  const totalPatterns = allEntries.reduce((s, e) => s + e.patterns_originated, 0)
+
+  const entries = useMemo(() => {
+    const q = search.toLowerCase()
+    let result = allEntries.filter((e) => {
+      if (!q) return true
+      return (
+        e.author_name?.toLowerCase().includes(q) ||
+        e.author_email?.toLowerCase().includes(q) ||
+        e.message?.toLowerCase().includes(q) ||
+        e.commit_sha?.toLowerCase().includes(q)
+      )
+    })
+    result = [...result].sort((a, b) => {
+      switch (sort) {
+        case 'debt_asc':      return a.debt_introduced_score - b.debt_introduced_score
+        case 'date_desc':     return new Date(b.committed_at) - new Date(a.committed_at)
+        case 'date_asc':      return new Date(a.committed_at) - new Date(b.committed_at)
+        case 'patterns_desc': return b.patterns_originated - a.patterns_originated
+        default:              return b.debt_introduced_score - a.debt_introduced_score
+      }
+    })
+    return result
+  }, [allEntries, search, sort])
+
+  const displayMax = entries.length ? Math.max(...entries.map((e) => e.debt_introduced_score)) : 0
+  const hasActiveFilter = search || sort !== 'debt_desc'
 
   const handleExportCSV = () => {
     window.location.href = `/api/dashboard/${repoId}/blame/?format=csv`
@@ -54,7 +91,7 @@ export default function BlameReport() {
         right={
           <div className="flex items-center gap-3">
             <RepoSelector value={repoId} onChange={handleRepoChange} />
-            {entries.length > 0 && (
+            {allEntries.length > 0 && (
               <button
                 onClick={handleExportCSV}
                 className="flex items-center gap-1.5 px-3 h-8 rounded-md text-sm border border-border text-fg-muted hover:text-fg hover:border-fg-muted transition-colors"
@@ -71,60 +108,95 @@ export default function BlameReport() {
 
       {!isLoading && repoId && <>
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <StatCard label="Commits Analyzed" value={entries.length} />
+          <StatCard label="Commits Analyzed" value={allEntries.length} />
           <StatCard label="Patterns Originated" value={totalPatterns} />
           <StatCard label="Top Debt Commit" value={maxScore > 0 ? maxScore : '—'} color="text-danger" sub="debt score" />
         </div>
 
-        {entries.length === 0
-          ? <div className="text-center py-12 text-fg-muted text-sm">No blame data yet — run an analysis first.</div>
-          : <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-canvas-subtle border-b border-border">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium">Commit</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden md:table-cell">Author</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden lg:table-cell">Date</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium">Debt Score</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Patterns</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Files Affected</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((e) => (
-                    <tr key={e.full_sha} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-xs text-accent">{e.commit_sha}</span>
-                          {ghCommitUrl(e.full_sha) && (
-                            <a href={ghCommitUrl(e.full_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
-                              <ExternalLink size={11} />
-                            </a>
-                          )}
-                        </div>
-                        <div className="text-xs text-fg-muted mt-0.5 max-w-[180px] truncate" title={e.message}>{e.message}</div>
-                      </td>
-                      <td className="px-4 py-3 text-fg-muted hidden md:table-cell">
-                        <div>{e.author_name}</div>
-                        <div className="text-xs">{e.author_email}</div>
-                      </td>
-                      <td className="px-4 py-3 text-fg-muted text-xs hidden lg:table-cell">
-                        {new Date(e.committed_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <DebtBar score={e.debt_introduced_score} max={maxScore} />
-                      </td>
-                      <td className="px-4 py-3 hidden sm:table-cell">
-                        {e.patterns_originated > 0
-                          ? <span className="text-warning font-medium">{e.patterns_originated}</span>
-                          : <span className="text-fg-subtle">0</span>}
-                      </td>
-                      <td className="px-4 py-3 hidden sm:table-cell text-fg-muted">{e.files_eventually_affected}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {allEntries.length > 0 && (
+          <div className="mb-4 flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search author, message, SHA…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-8 pl-7 pr-3 text-xs rounded-md bg-canvas-subtle border border-border text-fg placeholder-fg-subtle focus:outline-none focus:border-accent w-56"
+              />
             </div>
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown size={13} className="text-fg-muted" />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+                className="h-8 px-2 text-xs rounded-md bg-canvas-subtle border border-border text-fg focus:outline-none focus:border-accent"
+              >
+                {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            {hasActiveFilter && (
+              <button onClick={() => { setSearch(''); setSort('debt_desc') }} className="text-xs text-fg-muted hover:text-fg underline underline-offset-2">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
+        {allEntries.length === 0
+          ? <div className="text-center py-12 text-fg-muted text-sm">No blame data yet — run an analysis first.</div>
+          : entries.length === 0
+            ? <div className="text-center py-12 text-fg-muted text-sm">No commits match the search.</div>
+            : <div className="rounded-lg border border-border overflow-hidden">
+                <div className="px-4 py-2 bg-canvas-subtle border-b border-border text-xs text-fg-muted">
+                  Showing {entries.length} of {allEntries.length} commit{allEntries.length !== 1 ? 's' : ''}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-canvas-subtle border-b border-border">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium">Commit</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden md:table-cell">Author</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden lg:table-cell">Date</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium">Debt Score</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Patterns</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Files Affected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e) => (
+                      <tr key={e.full_sha} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-xs text-accent">{e.commit_sha}</span>
+                            {ghCommitUrl(e.full_sha) && (
+                              <a href={ghCommitUrl(e.full_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
+                                <ExternalLink size={11} />
+                              </a>
+                            )}
+                          </div>
+                          <div className="text-xs text-fg-muted mt-0.5 max-w-[180px] truncate" title={e.message}>{e.message}</div>
+                        </td>
+                        <td className="px-4 py-3 text-fg-muted hidden md:table-cell">
+                          <div>{e.author_name}</div>
+                          <div className="text-xs">{e.author_email}</div>
+                        </td>
+                        <td className="px-4 py-3 text-fg-muted text-xs hidden lg:table-cell">
+                          {new Date(e.committed_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <DebtBar score={e.debt_introduced_score} max={displayMax} />
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          {e.patterns_originated > 0
+                            ? <span className="text-warning font-medium">{e.patterns_originated}</span>
+                            : <span className="text-fg-subtle">0</span>}
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell text-fg-muted">{e.files_eventually_affected}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
         }
       </>}
     </div>

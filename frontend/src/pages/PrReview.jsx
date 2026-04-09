@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { GitPullRequest, ExternalLink } from 'lucide-react'
+import { GitPullRequest, ExternalLink, Search } from 'lucide-react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
@@ -33,6 +33,25 @@ function FindingsDonut({ prs }) {
   return <div className="h-44"><Doughnut data={data} options={options} /></div>
 }
 
+const STATUS_OPTIONS = ['all', 'open', 'analyzing', 'closed', 'merged']
+const SEV_OPTIONS    = ['all', 'critical', 'high', 'medium', 'low', 'clean']
+
+function FilterPills({ value, options, onChange }) {
+  return (
+    <div className="flex gap-1.5 flex-wrap">
+      {options.map((o) => (
+        <button
+          key={o}
+          onClick={() => onChange(o)}
+          className={`px-2.5 py-1 rounded text-xs border transition-colors ${value === o ? 'border-accent text-accent bg-accent/10' : 'border-border text-fg-muted hover:text-fg'}`}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function PrReview() {
   const { data: reposData } = useRepos()
   const repos = reposData?.data || []
@@ -44,6 +63,10 @@ export default function PrReview() {
   const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
   const ghPrUrl = (num) => repoFullName ? `https://github.com/${repoFullName}/pull/${num}` : null
 
+  const [search, setSearch]       = useState('')
+  const [statusFilter, setStatus] = useState('all')
+  const [sevFilter, setSev]       = useState('all')
+
   const { data, isLoading } = useQuery({
     queryKey: ['prs', repoId],
     queryFn: () => api.get(`/dashboard/${repoId}/prs/`).then((r) => r.data),
@@ -51,9 +74,25 @@ export default function PrReview() {
     refetchInterval: 30_000,
   })
 
-  const prs = data?.data || []
-  const reviewed = prs.filter((p) => p.reviewed_at)
+  const allPrs = data?.data || []
+  const reviewed = allPrs.filter((p) => p.reviewed_at)
   const avgHealth = reviewed.length ? Math.round(reviewed.reduce((s, p) => s + (p.health_score || 0), 0) / reviewed.length) : null
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return allPrs.filter((pr) => {
+      if (statusFilter !== 'all' && pr.status !== statusFilter) return false
+      if (sevFilter === 'clean') {
+        if (pr.total_findings > 0) return false
+      } else if (sevFilter !== 'all') {
+        if (!(pr.findings_by_severity[sevFilter] > 0)) return false
+      }
+      if (q && !pr.title?.toLowerCase().includes(q) && !pr.author?.toLowerCase().includes(q) && !pr.head_branch?.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [allPrs, search, statusFilter, sevFilter])
+
+  const hasActiveFilter = search || statusFilter !== 'all' || sevFilter !== 'all'
 
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
@@ -64,75 +103,110 @@ export default function PrReview() {
 
       {!isLoading && repoId && <>
         <div className="grid grid-cols-3 gap-3 mb-6">
-          <StatCard label="Total PRs" value={prs.length} />
+          <StatCard label="Total PRs" value={allPrs.length} />
           <StatCard label="Reviewed" value={reviewed.length} />
           <StatCard label="Avg Health" value={avgHealth != null ? `${avgHealth}/100` : '—'} color={avgHealth >= 80 ? 'text-success' : avgHealth >= 50 ? 'text-warning' : 'text-danger'} />
         </div>
 
-        {prs.length > 0 && (
+        {allPrs.length > 0 && (
           <div className="rounded-lg border border-border bg-canvas-subtle p-4 mb-6">
             <div className="text-sm font-medium text-fg mb-3">Findings by Severity (all PRs combined)</div>
-            <FindingsDonut prs={prs} />
+            <FindingsDonut prs={allPrs} />
           </div>
         )}
 
-        {prs.length === 0
-          ? <div className="text-center py-12 text-fg-muted text-sm">No PRs reviewed yet.</div>
-          : <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-canvas-subtle border-b border-border">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium">Pull Request</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden md:table-cell">Author</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium">Status</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Health</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden lg:table-cell">Debt Impact</th>
-                    <th className="px-4 py-3 text-left text-fg-subtle font-medium">Top Finding</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prs.map((pr) => {
-                    const topSev = ['critical','high','medium','low','info'].find((s) => pr.findings_by_severity[s] > 0)
-                    const debtPct = pr.debt_impact_score != null ? Math.round(pr.debt_impact_score * 100) : null
-                    return (
-                      <tr key={pr.id} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium text-fg truncate max-w-[180px]" title={pr.title}>#{pr.github_pr_number} {pr.title}</span>
-                            {ghPrUrl(pr.github_pr_number) && (
-                              <a href={ghPrUrl(pr.github_pr_number)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
-                                <ExternalLink size={12} />
-                              </a>
-                            )}
-                          </div>
-                          <div className="text-xs text-fg-muted mt-0.5 font-mono">{pr.head_branch}</div>
-                        </td>
-                        <td className="px-4 py-3 text-fg-muted hidden md:table-cell">{pr.author}</td>
-                        <td className="px-4 py-3"><StatusBadge status={pr.status} /></td>
-                        <td className="px-4 py-3 hidden sm:table-cell">
-                          {pr.health_score != null
-                            ? <span className={pr.health_score >= 80 ? 'text-success' : pr.health_score >= 50 ? 'text-warning' : 'text-danger'}>{Math.round(pr.health_score)}/100</span>
-                            : <span className="text-fg-subtle">—</span>}
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          {debtPct != null
-                            ? <span className={debtPct >= 30 ? 'text-danger font-medium' : debtPct >= 10 ? 'text-warning' : 'text-fg-muted'}>{debtPct}%</span>
-                            : <span className="text-fg-subtle">—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          {topSev
-                            ? <div className="flex items-center gap-1.5">
-                                <SeverityBadge sev={topSev} />
-                                {pr.total_findings > 1 && <span className="text-xs text-fg-muted">+{pr.total_findings - 1}</span>}
-                              </div>
-                            : <span className="text-success text-xs">Clean</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+        {allPrs.length > 0 && (
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search title, author, branch…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-8 pl-7 pr-3 text-xs rounded-md bg-canvas-subtle border border-border text-fg placeholder-fg-subtle focus:outline-none focus:border-accent w-56"
+                />
+              </div>
+              {hasActiveFilter && (
+                <button onClick={() => { setSearch(''); setStatus('all'); setSev('all') }} className="text-xs text-fg-muted hover:text-fg underline underline-offset-2">
+                  Clear filters
+                </button>
+              )}
             </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-fg-muted w-12">Status:</span>
+              <FilterPills value={statusFilter} options={STATUS_OPTIONS} onChange={setStatus} />
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-fg-muted w-12">Severity:</span>
+              <FilterPills value={sevFilter} options={SEV_OPTIONS} onChange={setSev} />
+            </div>
+          </div>
+        )}
+
+        {allPrs.length === 0
+          ? <div className="text-center py-12 text-fg-muted text-sm">No PRs reviewed yet.</div>
+          : filtered.length === 0
+            ? <div className="text-center py-12 text-fg-muted text-sm">No PRs match the current filters.</div>
+            : <div className="rounded-lg border border-border overflow-hidden">
+                <div className="px-4 py-2 bg-canvas-subtle border-b border-border text-xs text-fg-muted">
+                  Showing {filtered.length} of {allPrs.length} pull request{allPrs.length !== 1 ? 's' : ''}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-canvas-subtle border-b border-border">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium">Pull Request</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden md:table-cell">Author</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium">Status</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden sm:table-cell">Health</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium hidden lg:table-cell">Debt Impact</th>
+                      <th className="px-4 py-3 text-left text-fg-subtle font-medium">Top Finding</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((pr) => {
+                      const topSev = ['critical','high','medium','low','info'].find((s) => pr.findings_by_severity[s] > 0)
+                      const debtPct = pr.debt_impact_score != null ? Math.round(pr.debt_impact_score * 100) : null
+                      return (
+                        <tr key={pr.id} className="border-b border-border-muted last:border-0 hover:bg-border-muted/20 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-fg truncate max-w-[180px]" title={pr.title}>#{pr.github_pr_number} {pr.title}</span>
+                              {ghPrUrl(pr.github_pr_number) && (
+                                <a href={ghPrUrl(pr.github_pr_number)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent shrink-0" title="Open on GitHub">
+                                  <ExternalLink size={12} />
+                                </a>
+                              )}
+                            </div>
+                            <div className="text-xs text-fg-muted mt-0.5 font-mono">{pr.head_branch}</div>
+                          </td>
+                          <td className="px-4 py-3 text-fg-muted hidden md:table-cell">{pr.author}</td>
+                          <td className="px-4 py-3"><StatusBadge status={pr.status} /></td>
+                          <td className="px-4 py-3 hidden sm:table-cell">
+                            {pr.health_score != null
+                              ? <span className={pr.health_score >= 80 ? 'text-success' : pr.health_score >= 50 ? 'text-warning' : 'text-danger'}>{Math.round(pr.health_score)}/100</span>
+                              : <span className="text-fg-subtle">—</span>}
+                          </td>
+                          <td className="px-4 py-3 hidden lg:table-cell">
+                            {debtPct != null
+                              ? <span className={debtPct >= 30 ? 'text-danger font-medium' : debtPct >= 10 ? 'text-warning' : 'text-fg-muted'}>{debtPct}%</span>
+                              : <span className="text-fg-subtle">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {topSev
+                              ? <div className="flex items-center gap-1.5">
+                                  <SeverityBadge sev={topSev} />
+                                  {pr.total_findings > 1 && <span className="text-xs text-fg-muted">+{pr.total_findings - 1}</span>}
+                                </div>
+                              : <span className="text-success text-xs">Clean</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
         }
       </>}
     </div>
