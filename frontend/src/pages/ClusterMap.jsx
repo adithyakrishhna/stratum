@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Layers } from 'lucide-react'
+import { Layers, ExternalLink } from 'lucide-react'
 import { Bubble } from 'react-chartjs-2'
 import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'chart.js'
 
@@ -24,6 +24,9 @@ export default function ClusterMap() {
   const ids = repos.map((r) => r.id)
   const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
   const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+
+  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
+  const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
 
   const [langFilter, setLangFilter] = useState('')
   const [selected, setSelected] = useState(null)
@@ -136,7 +139,17 @@ export default function ClusterMap() {
                       <div><span className="text-fg-muted">Files affected:</span> <span className="text-fg">{selected.file_count}</span></div>
                       <div><span className="text-fg-muted">Functions:</span> <span className="text-fg">{selected.chunk_count}</span></div>
                       <div><span className="text-fg-muted">Growth rate:</span> <span className={selected.growth_rate >= 0.3 ? 'text-danger font-medium' : selected.growth_rate >= 0.1 ? 'text-warning' : 'text-success'}>{Math.round((selected.growth_rate || 0) * 100)}%</span></div>
-                      {selected.origin_commit_sha && <div><span className="text-fg-muted">Origin commit:</span> <span className="font-mono text-xs text-fg">{selected.origin_commit_sha}</span></div>}
+                      {selected.origin_commit_sha && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-fg-muted">Origin commit:</span>
+                          <span className="font-mono text-xs text-fg">{selected.origin_commit_sha}</span>
+                          {ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha) && (
+                            <a href={ghCommitUrl(selected.origin_commit_full_sha || selected.origin_commit_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent" title="Open on GitHub">
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+                      )}
                       {selected.first_seen_at && <div><span className="text-fg-muted">First seen:</span> <span className="text-fg">{new Date(selected.first_seen_at).toLocaleDateString()}</span></div>}
                       {selected.is_flagged && <div className="mt-2 px-3 py-2 rounded bg-danger-subtle text-danger text-xs">⚠ Flagged as spreading anti-pattern</div>}
                     </div>

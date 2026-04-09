@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { TrendingUp } from 'lucide-react'
+import { TrendingUp, ExternalLink, Copy, Check } from 'lucide-react'
 import { Line } from 'react-chartjs-2'
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
@@ -11,6 +11,20 @@ import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import { RepoSelector, useRepos } from '../components/RepoSelector'
 
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  const handle = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <button onClick={handle} className="text-fg-muted hover:text-accent transition-colors" title="Copy SHA">
+      {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+    </button>
+  )
+}
+
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
 export default function DebtTimeline() {
@@ -20,6 +34,9 @@ export default function DebtTimeline() {
   const ids = repos.map((r) => r.id)
   const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
   const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+
+  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
+  const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
 
   const [filePath, setFilePath] = useState('')
 
@@ -92,6 +109,12 @@ export default function DebtTimeline() {
       x: { ticks: { color: '#6e7681', maxTicksLimit: 10, font: { size: 11 } }, grid: { color: '#21262d' } },
       y: { ticks: { color: '#6e7681', font: { size: 11 } }, grid: { color: '#21262d' } },
     },
+    onClick: (_e, elements) => {
+      if (!elements.length) return
+      const t = timeline[elements[0].index]
+      const url = ghCommitUrl(t.full_sha || t.commit_sha)
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    },
   }
 
   return (
@@ -140,7 +163,15 @@ export default function DebtTimeline() {
                   <div className="space-y-2">
                     {inflectionPoints.map(({ t }) => (
                       <div key={t.commit_sha} className="flex items-start gap-3 text-sm">
-                        <span className="font-mono text-xs text-fg-muted shrink-0 mt-0.5">{t.commit_sha}</span>
+                        <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                          <span className="font-mono text-xs text-fg-muted">{t.commit_sha}</span>
+                          <CopyButton text={t.full_sha || t.commit_sha} />
+                          {ghCommitUrl(t.full_sha || t.commit_sha) && (
+                            <a href={ghCommitUrl(t.full_sha || t.commit_sha)} target="_blank" rel="noopener noreferrer" className="text-fg-muted hover:text-accent" title="Open on GitHub">
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
                         <span className="text-fg">{t.message}</span>
                         <span className="ml-auto text-danger shrink-0">+{t.velocity}</span>
                       </div>

@@ -253,6 +253,7 @@ def debt_timeline(request, repo_id):
         for ds in scores:
             timeline.append({
                 'commit_sha': ds.commit.sha[:8],
+                'full_sha': ds.commit.sha,
                 'committed_at': ds.commit.committed_at.isoformat(),
                 'message': ds.commit.message.splitlines()[0][:80],
                 'total_score': round(ds.total_score, 2),
@@ -305,6 +306,9 @@ def cluster_map(request, repo_id):
             'first_seen_at': c.first_seen_at.isoformat() if c.first_seen_at else None,
             'origin_commit_sha': (
                 c.origin_commit.sha[:8] if c.origin_commit else None
+            ),
+            'origin_commit_full_sha': (
+                c.origin_commit.sha if c.origin_commit else None
             ),
         })
 
