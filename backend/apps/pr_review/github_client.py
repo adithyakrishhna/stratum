@@ -22,7 +22,7 @@ from typing import Optional
 
 import structlog
 from django.conf import settings
-from github import Github, GithubIntegration, GithubException
+from github import Auth, Github, GithubIntegration, GithubException
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +59,7 @@ def _get_installation_client(installation_id: int) -> Github:
       3. Exchange JWT for an installation access token (1-hour TTL)
       4. Return a Github client using that token
     """
-    app_id = int(settings.GITHUB_APP_ID)
+    app_id = str(settings.GITHUB_APP_ID).strip()
     key_path = Path(settings.GITHUB_APP_PRIVATE_KEY_PATH)
 
     if not key_path.exists():
@@ -70,10 +70,8 @@ def _get_installation_client(installation_id: int) -> Github:
 
     private_key = key_path.read_text()
 
-    integration = GithubIntegration(
-        integration_id=app_id,
-        private_key=private_key,
-    )
+    auth = Auth.AppAuth(app_id, private_key)
+    integration = GithubIntegration(auth=auth)
     access_token = integration.get_access_token(installation_id)
     return Github(access_token.token)
 
