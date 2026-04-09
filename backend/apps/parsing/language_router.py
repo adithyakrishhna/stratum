@@ -102,7 +102,7 @@ SKIP_DIRS: frozenset[str] = frozenset({
 
 _SKIP_PATTERNS: list[re.Pattern] = [
     re.compile(r'/migrations/\d+_.*\.py$'),      # Django migrations
-    re.compile(r'/alembic/versions/.*\.py$'),     # Alembic migrations
+    re.compile(r'(?:^|/)alembic/versions/.*\.py$'),  # Alembic migrations
     re.compile(r'_pb2\.py$'),                     # Protobuf Python
     re.compile(r'\.pb\.go$'),                     # Protobuf Go
     re.compile(r'\.pb\.ts$'),                     # Protobuf TypeScript
