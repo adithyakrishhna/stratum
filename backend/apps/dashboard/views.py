@@ -108,6 +108,7 @@ def overview(request, repo_id):
             if commit:
                 debt_trend.append({
                     'commit_sha': commit.sha[:8],
+                    'full_sha': commit.sha,
                     'committed_at': commit.committed_at.isoformat(),
                     'message': commit.message.splitlines()[0][:80],
                     'avg_debt_score': round(agg_map.get(str(cid), 0), 2),
