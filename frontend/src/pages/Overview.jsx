@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { LayoutDashboard, RefreshCw } from 'lucide-react'
 import { Line } from 'react-chartjs-2'
 import {
@@ -15,7 +16,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
-function DebtTrendChart({ trend }) {
+function DebtTrendChart({ trend, repoFullName }) {
   if (!trend?.length) {
     return (
       <div className="flex items-center justify-center h-48 text-fg-subtle text-sm">
@@ -23,6 +24,7 @@ function DebtTrendChart({ trend }) {
       </div>
     )
   }
+  const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
   const data = {
     labels: trend.map((t) => t.commit_sha),
     datasets: [{
@@ -39,16 +41,38 @@ function DebtTrendChart({ trend }) {
   const options = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: { mode: 'index' } },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        mode: 'index',
+        callbacks: {
+          title: (items) => {
+            const t = trend[items[0].dataIndex]
+            return [`${t.commit_sha} — ${t.message || ''}`]
+          },
+        },
+      },
+    },
     scales: {
       x: { ticks: { color: '#6e7681', maxTicksLimit: 8, font: { size: 11 } }, grid: { color: '#21262d' } },
       y: { ticks: { color: '#6e7681', font: { size: 11 } }, grid: { color: '#21262d' } },
     },
+    onClick: (_e, elements) => {
+      if (!elements.length) return
+      const t = trend[elements[0].index]
+      const url = ghCommitUrl(t.full_sha || t.commit_sha)
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    },
   }
-  return <div className="h-48"><Line data={data} options={options} /></div>
+  return (
+    <div className="h-48 cursor-pointer" title="Click a point to open the commit on GitHub">
+      <Line data={data} options={options} />
+    </div>
+  )
 }
 
 export default function Overview() {
+  const navigate = useNavigate()
   const { data: reposData } = useRepos()
   const repos = reposData?.data || []
   const stored = localStorage.getItem('stratum_repo_id')
@@ -65,9 +89,13 @@ export default function Overview() {
   })
 
   const [wsEvents, setWsEvents] = useState([])
-  useWebSocket(repoId, (msg) => setWsEvents((prev) => [msg, ...prev].slice(0, 5)))
+  useWebSocket(repoId, (msg) => {
+    setWsEvents((prev) => [msg, ...prev].slice(0, 5))
+    refetch()
+  })
 
   const d = data?.data
+  const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
   const healthColor = !d?.health_score ? 'text-fg-muted'
     : d.health_score >= 80 ? 'text-success' : d.health_score >= 50 ? 'text-warning' : 'text-danger'
 
@@ -93,14 +121,36 @@ export default function Overview() {
       {d && <>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <StatCard label="Health Score" value={d.health_score != null ? `${d.health_score}/100` : 'No PRs'} color={healthColor} sub="avg of last 5 PRs" />
-          <StatCard label="Commits Analyzed" value={d.total_commits} />
-          <StatCard label="Files Tracked" value={d.total_files} />
-          <StatCard label="Spreading Patterns" value={d.spreading_pattern_count} color={d.spreading_pattern_count > 0 ? 'text-warning' : 'text-success'} sub="clusters growing > 10%" />
+          <div
+            onClick={() => navigate('/dashboard/blame')}
+            className="cursor-pointer rounded-lg border border-border bg-canvas-subtle p-4 hover:border-accent/40 transition-colors"
+            title="View Blame Report"
+          >
+            <div className="text-xs text-fg-muted mb-1">Commits Analyzed</div>
+            <div className="text-2xl font-semibold text-fg">{d.total_commits ?? '—'}</div>
+          </div>
+          <div
+            onClick={() => navigate('/dashboard/heatmap')}
+            className="cursor-pointer rounded-lg border border-border bg-canvas-subtle p-4 hover:border-accent/40 transition-colors"
+            title="View Velocity Heatmap"
+          >
+            <div className="text-xs text-fg-muted mb-1">Files Tracked</div>
+            <div className="text-2xl font-semibold text-fg">{d.total_files ?? '—'}</div>
+          </div>
+          <div
+            onClick={() => navigate('/dashboard/clusters')}
+            className="cursor-pointer rounded-lg border border-border bg-canvas-subtle p-4 hover:border-accent/40 transition-colors"
+            title="View Cluster Map"
+          >
+            <div className="text-xs text-fg-muted mb-1">Spreading Patterns</div>
+            <div className={`text-2xl font-semibold ${d.spreading_pattern_count > 0 ? 'text-warning' : 'text-success'}`}>{d.spreading_pattern_count ?? '—'}</div>
+            <div className="text-xs text-fg-subtle mt-1">clusters growing &gt; 10%</div>
+          </div>
         </div>
 
         <div className="rounded-lg border border-border bg-canvas-subtle p-4 mb-6">
           <div className="text-sm font-medium text-fg mb-3">Debt Trend — last 30 commits</div>
-          <DebtTrendChart trend={d.debt_trend} />
+          <DebtTrendChart trend={d.debt_trend} repoFullName={repoFullName} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
