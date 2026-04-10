@@ -304,17 +304,26 @@ def connect_repository(request):
             hashlib.sha256(full_name.lower().encode()).hexdigest()[:8], 16
         ) % 2_000_000_000
 
-    # Idempotent: get_or_create by github_repo_id
-    repo, created = Repository.objects.get_or_create(
-        github_repo_id=github_repo_id,
-        defaults={
-            'owner': owner,
-            'name': name,
-            'full_name': full_name,
-            'is_private': is_private,
-            'default_branch': default_branch,
-        },
-    )
+    # Idempotent: look up by full_name first — handles private repos where the webhook
+    # already created the record with the real GitHub ID but our unauthenticated API call failed.
+    repo = Repository.objects.filter(full_name__iexact=full_name).first()
+    if repo:
+        created = False
+        # Heal the record: store the real GitHub ID if we now have it from the API
+        if github_repo_id and repo.github_repo_id != github_repo_id:
+            Repository.objects.filter(id=repo.id).update(github_repo_id=github_repo_id)
+            repo.github_repo_id = github_repo_id
+    else:
+        repo, created = Repository.objects.get_or_create(
+            github_repo_id=github_repo_id,
+            defaults={
+                'owner': owner,
+                'name': name,
+                'full_name': full_name,
+                'is_private': is_private,
+                'default_branch': default_branch,
+            },
+        )
 
     # Link this user as owner
     user_repo, _ = UserRepository.objects.get_or_create(

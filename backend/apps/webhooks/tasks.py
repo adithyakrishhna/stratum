@@ -39,12 +39,25 @@ def handle_pull_request_event(self, payload: dict):
     try:
         repo = Repository.objects.get(github_repo_id=github_repo_id)
     except Repository.DoesNotExist:
-        logger.warning(
-            "pr_task_repo_not_registered",
-            github_repo_id=github_repo_id,
-            repo=repo_full_name,
-        )
-        return
+        # Fall back to full_name lookup — heals repos connected with a hash-based
+        # github_repo_id before the webhook fired with the real ID.
+        try:
+            repo = Repository.objects.get(full_name=repo_full_name)
+            if github_repo_id:
+                Repository.objects.filter(id=repo.id).update(github_repo_id=github_repo_id)
+                repo.github_repo_id = github_repo_id
+                logger.info(
+                    "pr_task_repo_id_healed",
+                    repo=repo_full_name,
+                    github_repo_id=github_repo_id,
+                )
+        except Repository.DoesNotExist:
+            logger.warning(
+                "pr_task_repo_not_registered",
+                github_repo_id=github_repo_id,
+                repo=repo_full_name,
+            )
+            return
 
     # Prefer installation_id from the webhook payload (always present for App events).
     # Fall back to the value stored on the repo for older records.
