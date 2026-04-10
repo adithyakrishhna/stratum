@@ -11,7 +11,7 @@ import {
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
@@ -73,13 +73,9 @@ function DebtTrendChart({ trend, repoFullName }) {
 
 export default function Overview() {
   const navigate = useNavigate()
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
+  const { repos, repoId, setRepoId } = useRepoId()
 
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const handleRepoChange = (id) => setRepoId(id)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['overview', repoId],

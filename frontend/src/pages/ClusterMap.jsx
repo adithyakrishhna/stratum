@@ -7,7 +7,7 @@ import { Chart as ChartJS, LinearScale, PointElement, Tooltip, Legend } from 'ch
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend)
 
@@ -27,16 +27,14 @@ const SORT_OPTIONS = [
   { value: 'growth_desc', label: 'Growth Rate ↓' },
   { value: 'growth_asc',  label: 'Growth Rate ↑' },
   { value: 'files_desc',  label: 'Files ↓' },
+  { value: 'files_asc',   label: 'Files ↑' },
   { value: 'chunks_desc', label: 'Functions ↓' },
+  { value: 'chunks_asc',  label: 'Functions ↑' },
 ]
 
 export default function ClusterMap() {
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const { repos, repoId, setRepoId } = useRepoId()
+  const handleRepoChange = (id) => setRepoId(id)
 
   const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
   const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
@@ -66,7 +64,9 @@ export default function ClusterMap() {
       switch (sort) {
         case 'growth_asc':  return (a.growth_rate || 0) - (b.growth_rate || 0)
         case 'files_desc':  return b.file_count - a.file_count
+        case 'files_asc':   return a.file_count - b.file_count
         case 'chunks_desc': return b.chunk_count - a.chunk_count
+        case 'chunks_asc':  return a.chunk_count - b.chunk_count
         default:            return (b.growth_rate || 0) - (a.growth_rate || 0)
       }
     })

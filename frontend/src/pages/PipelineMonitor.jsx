@@ -4,7 +4,7 @@ import { Activity, RotateCcw, X } from 'lucide-react'
 
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 const STAGE_ORDER = ['ingestion', 'parsing', 'embedding', 'storage', 'intelligence']
@@ -66,12 +66,8 @@ function FilterPills({ value, options, onChange }) {
 }
 
 export default function PipelineMonitor() {
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const { repoId, setRepoId } = useRepoId()
+  const handleRepoChange = (id) => setRepoId(id)
 
   const [liveEvents, setLiveEvents] = useState([])
   useWebSocket(repoId, (msg) => setLiveEvents((prev) => [msg, ...prev].slice(0, 20)))

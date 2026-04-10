@@ -10,7 +10,7 @@ import {
 
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
@@ -102,13 +102,8 @@ function FileSearch({ fileList, value, onChange }) {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
 export default function DebtTimeline() {
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
+  const { repos, repoId, setRepoId } = useRepoId()
   const handleRepoChange = (id) => {
-    localStorage.setItem('stratum_repo_id', id)
     setRepoId(id)
     setFilePath('')
   }

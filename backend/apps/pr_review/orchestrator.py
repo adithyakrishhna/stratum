@@ -733,7 +733,7 @@ def _build_summary_body(
         lines += [
             "",
             "> **Consider consolidating these patterns before merging** to prevent "
-            "further spread. See the [Stratum Cluster Map](#) for full cluster history.",
+            "further spread. Check your **Stratum Cluster Map** dashboard for full cluster history.",
         ]
 
     # Duplicate logic section — the unique Stratum value
