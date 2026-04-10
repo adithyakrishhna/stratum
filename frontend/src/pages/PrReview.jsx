@@ -7,7 +7,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
@@ -54,12 +54,8 @@ function FilterPills({ value, options, onChange }) {
 
 export default function PrReview() {
   const qc = useQueryClient()
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const { repos, repoId, setRepoId } = useRepoId()
+  const handleRepoChange = (id) => setRepoId(id)
 
   const currentRepo = repos.find((r) => r.id === repoId)
   const repoFullName = currentRepo?.full_name || ''

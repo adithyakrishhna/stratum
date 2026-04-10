@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 function velocityColor(velocity, status) {
   if (status === 'deteriorating') return 'bg-danger/20 border-danger/40 text-danger'
@@ -39,12 +39,8 @@ const SORT_OPTIONS = [
 ]
 
 export default function VelocityHeatmap() {
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const { repoId, setRepoId } = useRepoId()
+  const handleRepoChange = (id) => setRepoId(id)
 
   const [langFilter, setLangFilter]     = useState('')
   const [statusFilter, setStatusFilter] = useState('all')

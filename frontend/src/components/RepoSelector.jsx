@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import api from '../services/api'
 
@@ -43,16 +44,41 @@ export function RepoSelector({ value, onChange }) {
   )
 }
 
-/** Hook: returns [repoId, setRepoId] — persists to localStorage. */
-export function useSelectedRepo(repos) {
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = (repos || []).map((r) => r.id)
-  const valid = ids.includes(stored) ? stored : (ids[0] || null)
-  return [
-    valid,
-    (id) => {
-      localStorage.setItem('stratum_repo_id', id)
-      // Force re-render by navigating (pages call window.location or use state)
-    },
-  ]
+/**
+ * Hook: returns { repos, repoId, setRepoId }.
+ * Syncs repoId with the loaded repo list — handles stale localStorage
+ * (e.g. after a repo is deleted/reconnected) without requiring a manual
+ * browser cache clear.
+ */
+export function useRepoId() {
+  const { data: reposData } = useRepos()
+  const repos = reposData?.data || []
+
+  const [repoId, setRepoIdRaw] = useState(() => {
+    const stored = localStorage.getItem('stratum_repo_id')
+    const ids = repos.map((r) => r.id)
+    return ids.includes(stored) ? stored : (ids[0] || null)
+  })
+
+  // Runs whenever the repo list loads or changes.
+  // If the stored/current repoId is no longer valid, picks the first available repo.
+  const repoKey = repos.map((r) => r.id).join(',')
+  useEffect(() => {
+    if (!repos.length) return
+    const stored = localStorage.getItem('stratum_repo_id')
+    if (stored && repos.some((r) => r.id === stored)) {
+      if (repoId !== stored) setRepoIdRaw(stored)
+    } else if (!repoId || !repos.some((r) => r.id === repoId)) {
+      const first = repos[0].id
+      localStorage.setItem('stratum_repo_id', first)
+      setRepoIdRaw(first)
+    }
+  }, [repoKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setRepoId = (id) => {
+    localStorage.setItem('stratum_repo_id', id)
+    setRepoIdRaw(id)
+  }
+
+  return { repos, repoId, setRepoId }
 }

@@ -5,7 +5,7 @@ import { GitCommit, Download, ExternalLink, Search, ArrowUpDown } from 'lucide-r
 import api from '../services/api'
 import PageHeader from '../components/PageHeader'
 import StatCard from '../components/StatCard'
-import { RepoSelector, useRepos } from '../components/RepoSelector'
+import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 function DebtBar({ score, max }) {
   const pct = max > 0 ? Math.min(100, (score / max) * 100) : 0
@@ -29,18 +29,15 @@ const SORT_OPTIONS = [
 ]
 
 export default function BlameReport() {
-  const { data: reposData } = useRepos()
-  const repos = reposData?.data || []
-  const stored = localStorage.getItem('stratum_repo_id')
-  const ids = repos.map((r) => r.id)
-  const [repoId, setRepoId] = useState(ids.includes(stored) ? stored : (ids[0] || null))
-  const handleRepoChange = (id) => { localStorage.setItem('stratum_repo_id', id); setRepoId(id) }
+  const { repos, repoId, setRepoId } = useRepoId()
+  const handleRepoChange = (id) => setRepoId(id)
 
   const repoFullName = repos.find((r) => r.id === repoId)?.full_name || ''
   const ghCommitUrl = (sha) => repoFullName && sha ? `https://github.com/${repoFullName}/commit/${sha}` : null
 
-  const [search, setSearch] = useState('')
-  const [sort, setSort]     = useState('debt_desc')
+  const [search, setSearch]         = useState('')
+  const [sort, setSort]             = useState('debt_desc')
+  const [authorFilter, setAuthor]   = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['blame', repoId],
@@ -51,10 +48,12 @@ export default function BlameReport() {
   const allEntries = data?.data || []
   const maxScore = allEntries.length ? allEntries[0].debt_introduced_score : 0
   const totalPatterns = allEntries.reduce((s, e) => s + e.patterns_originated, 0)
+  const authors = useMemo(() => [...new Set(allEntries.map((e) => e.author_name).filter(Boolean))].sort(), [allEntries])
 
   const entries = useMemo(() => {
     const q = search.toLowerCase()
     let result = allEntries.filter((e) => {
+      if (authorFilter && e.author_name !== authorFilter) return false
       if (!q) return true
       return (
         e.author_name?.toLowerCase().includes(q) ||
@@ -76,7 +75,7 @@ export default function BlameReport() {
   }, [allEntries, search, sort])
 
   const displayMax = entries.length ? Math.max(...entries.map((e) => e.debt_introduced_score)) : 0
-  const hasActiveFilter = search || sort !== 'debt_desc'
+  const hasActiveFilter = search || sort !== 'debt_desc' || authorFilter
 
   const handleExportCSV = () => {
     window.location.href = `/api/dashboard/${repoId}/blame/?format=csv`
@@ -119,12 +118,22 @@ export default function BlameReport() {
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search author, message, SHA…"
+                placeholder="Search message, SHA…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-8 pl-7 pr-3 text-xs rounded-md bg-canvas-subtle border border-border text-fg placeholder-fg-subtle focus:outline-none focus:border-accent w-56"
+                className="h-8 pl-7 pr-3 text-xs rounded-md bg-canvas-subtle border border-border text-fg placeholder-fg-subtle focus:outline-none focus:border-accent w-48"
               />
             </div>
+            {authors.length > 1 && (
+              <select
+                value={authorFilter}
+                onChange={(e) => setAuthor(e.target.value)}
+                className="h-8 px-2 text-xs rounded-md bg-canvas-subtle border border-border text-fg focus:outline-none focus:border-accent"
+              >
+                <option value="">All authors</option>
+                {authors.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            )}
             <div className="flex items-center gap-1.5">
               <ArrowUpDown size={13} className="text-fg-muted" />
               <select
@@ -136,7 +145,7 @@ export default function BlameReport() {
               </select>
             </div>
             {hasActiveFilter && (
-              <button onClick={() => { setSearch(''); setSort('debt_desc') }} className="text-xs text-fg-muted hover:text-fg underline underline-offset-2">
+              <button onClick={() => { setSearch(''); setSort('debt_desc'); setAuthor('') }} className="text-xs text-fg-muted hover:text-fg underline underline-offset-2">
                 Clear
               </button>
             )}
