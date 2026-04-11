@@ -35,8 +35,10 @@ node_modules/
 # Local repo clones (created by ingestion engine, never commit)
 repo_clones/
 
-# Secrets folder
-secrets/
+# Secrets folder — track the directory so it exists on fresh clone,
+# but never commit the private key or any other file inside it.
+secrets/*
+!secrets/.gitkeep
 
 # code review graph
 .mcp.json
