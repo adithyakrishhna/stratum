@@ -70,28 +70,27 @@ The tools below are in the same general space. This table covers the specific ca
 
 | | Stratum | SonarQube Community | CodeClimate | GitHub Advanced Security | CodeRabbit |
 |---|---|---|---|---|---|
-| **Self-hosted** | ✅ | ✅ | ❌ SaaS | ❌ SaaS ¹ | ❌ SaaS |
+| **Self-hosted** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Code stays on your servers** | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Free for private repos** | ✅ MIT | ✅ Community ed. | ❌ Paid ² | ❌ Paid ³ | ❌ Paid ⁴ |
-| **Inline PR line comments** | ✅ | ❌ ⁵ | ✅ | ✅ | ✅ |
+| **Free for private repos** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Inline PR line comments** | ✅ | ❌ | ✅ | ✅ | ✅ |
 | **Security vulnerability detection** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Configurable rules** | ✅ YAML file | ✅ Quality Profiles | ✅ Engines | ⚠️ CodeQL queries | ✅ Instructions |
-| **Semantic duplicate detection (AI/embedding-based)** | ✅ | ❌ token-based CPD | ❌ | ❌ | ⚠️ ⁶ |
+| **Configurable rules** | ✅ | ✅ | ✅ | ⚠️ | ✅ |
+| **Semantic duplicate detection (AI/embedding-based)** | ✅ | ❌ | ❌ | ❌ | ⚠️ |
 | **Per-commit debt score history** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Full git history ingestion** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Semantic cluster tracking over time** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Velocity heatmap** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **PR debt impact prediction** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **AI-generated fix suggestions** | ✅ Groq (opt-in) | ❌ | ❌ | ⚠️ ⁷ | ✅ |
+| **AI-generated fix suggestions** | ✅ | ❌ | ❌ | ⚠️ | ✅ |
 
-**Notes:**  
-¹ GitHub Enterprise Server can be self-hosted, but requires a paid licence.  
-² CodeClimate is free for public open-source repositories; private repos require a paid plan.  
-³ GitHub Advanced Security is free for public repos on github.com; private repos require GitHub Enterprise.  
-⁴ CodeRabbit has a free tier for public repositories.  
-⁵ SonarQube Community edition posts PR status checks but not inline line-level comments — those require the Developer or Enterprise edition.  
-⁶ CodeRabbit performs AI review of the changed code in a PR; cross-codebase semantic duplicate detection using stored embeddings is not a documented feature as of this writing.  
-⁷ GitHub Copilot Autofix provides AI suggestions but requires a separate Copilot subscription on top of Advanced Security.  
+**Notes:**
+- **SonarQube Community — Inline PR comments:** Posts PR status checks only. Inline line-level comments require Developer or Enterprise edition.
+- **CodeClimate — Free for private repos:** Free for public open-source repositories. Private repos require a paid plan.
+- **GitHub Advanced Security — Self-hosted / Free for private repos:** GitHub Enterprise Server can be self-hosted but requires a paid licence. Free only for public repos on github.com.
+- **CodeRabbit — Free for private repos:** Free tier available for public repositories only.
+- **CodeRabbit — Semantic duplicate detection:** Reviews the changed code in a PR using AI. Cross-codebase duplicate detection using stored embeddings is not a documented feature.
+- **GitHub Advanced Security — AI fix suggestions:** Copilot Autofix provides suggestions but requires a separate Copilot subscription on top of Advanced Security.
 
 > This comparison is based on each tool's publicly available documentation. Features, pricing, and editions change frequently — verify against current vendor documentation before deciding.
 
@@ -188,4 +187,17 @@ flowchart TD
 
 ## Tech Stack
 
-Django · Celery · PostgreSQL 16 + pgvector · Redis · FastAPI · React 18 · Vite · Tailwind CSS · Tree-sitter · CodeBERT · scikit-learn · Docker Compose
+| Layer | Technology |
+|---|---|
+| **Backend** | Django 5 |
+| **Task Queue** | Celery + Redis 7 |
+| **Database** | PostgreSQL 16 + pgvector (HNSW index) |
+| **Embedding Microservice** | FastAPI + CodeBERT (microsoft/codebert-base) |
+| **AST Parsing** | Tree-sitter (Python, JS, TS, Java, Go, Rust, C, C++, Ruby, PHP) |
+| **Clustering** | scikit-learn DBSCAN |
+| **Frontend** | React 18 + Vite + Tailwind CSS |
+| **Charts** | Chart.js 4 |
+| **Auth** | Django Allauth + GitHub OAuth |
+| **Real-time** | Django Channels (WebSockets) |
+| **LLM Suggestions** | Groq API (opt-in, free tier) |
+| **Containerization** | Docker Compose |
