@@ -43,7 +43,7 @@ function StageRow({ event }) {
         <span className="text-xs text-fg-subtle shrink-0">{durationSec}s</span>
       )}
       <span className="text-xs text-fg-subtle shrink-0 hidden md:block">
-        {new Date(event.created_at).toLocaleTimeString()}
+        {new Date(event.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
       </span>
     </div>
   )
@@ -80,7 +80,8 @@ export default function PipelineMonitor() {
     queryKey: ['pipeline', repoId],
     queryFn: () => api.get(`/dashboard/${repoId}/pipeline/`).then((r) => r.data),
     enabled: !!repoId,
-    refetchInterval: 15_000,
+    refetchInterval: 5_000,
+    refetchOnMount: 'always',
   })
 
   const retryMutation = useMutation({

@@ -359,10 +359,17 @@ def connect_repository(request):
     repo = Repository.objects.filter(full_name__iexact=full_name).first()
     if repo:
         created = False
-        # Heal the record: store the real GitHub ID if we now have it from the API
+        # Heal any stale fields now that we have verified data from the authenticated API
+        updates = {}
         if github_repo_id and repo.github_repo_id != github_repo_id:
-            Repository.objects.filter(id=repo.id).update(github_repo_id=github_repo_id)
-            repo.github_repo_id = github_repo_id
+            updates['github_repo_id'] = github_repo_id
+        if repo.is_private != is_private:
+            updates['is_private'] = is_private
+        if repo.default_branch != default_branch:
+            updates['default_branch'] = default_branch
+        if updates:
+            Repository.objects.filter(id=repo.id).update(**updates)
+            repo.refresh_from_db()
     else:
         repo, created = Repository.objects.get_or_create(
             github_repo_id=github_repo_id,
