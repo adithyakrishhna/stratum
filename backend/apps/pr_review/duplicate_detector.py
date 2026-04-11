@@ -79,6 +79,11 @@ _STOP = {
     # Domain-level tokens present in almost every function of this codebase
     'repo', 'repository', 'github', 'user', 'branch', 'commit', 'file',
     'path', 'code', 'chunk', 'object', 'list', 'dict', 'array',
+    # Ultra-generic function verbs — appear in function names AND in string
+    # literals / error messages everywhere, giving zero semantic signal.
+    # e.g. "Cannot process a record" puts 'process' in body_tok of ANY
+    # function that returns such a message, regardless of what it does.
+    'process', 'handle', 'execute', 'perform',
 }
 
 

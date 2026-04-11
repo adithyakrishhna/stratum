@@ -146,9 +146,9 @@ def process_and_validate_records(payload_token, owner_id, required_permissions):
 
     status = record_data.get("status", "")
     if status == "cancelled":
-        return {"processed": False, "reason": "Cannot process a cancelled record"}
+        return {"processed": False, "reason": "Record is cancelled — skipping"}
     elif status == "archived":
-        return {"processed": False, "reason": "Cannot process an archived record"}
+        return {"processed": False, "reason": "Record is archived — skipping"}
     elif status not in ("pending", "active", "draft"):
         return {"processed": False, "reason": f"Unexpected record status: {status}"}
 
