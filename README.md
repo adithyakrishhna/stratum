@@ -66,24 +66,34 @@ After ingesting your git history, Stratum provides:
 
 ## How It Compares
 
-| Feature | Stratum | SonarQube (Community) | CodeClimate | GitHub Advanced Security | CodeRabbit |
-|---|---|---|---|---|---|
-| Self-hosted | ✅ | ✅ | ❌ SaaS | ❌ SaaS | ❌ SaaS |
-| Code stays on your servers | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Free to use | ✅ Open source | ✅ Community edition | ❌ Paid | ❌ Paid (GitHub Enterprise) | ❌ Paid |
-| Inline PR comments | ✅ | ❌ | ✅ | ✅ | ✅ |
-| Security detection | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Custom rules (YAML) | ✅ | ✅ | ✅ | ⚠️ Limited | ⚠️ Limited |
-| AI duplicate detection | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Debt score per commit | ✅ | ❌ | ⚠️ Score today only | ❌ | ❌ |
-| Full git history analysis | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Semantic cluster tracking | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Velocity heatmap | ✅ | ❌ | ❌ | ❌ | ❌ |
-| PR debt impact prediction | ✅ | ❌ | ❌ | ❌ | ❌ |
-| LLM fix suggestions | ✅ (Groq, optional) | ❌ | ❌ | ❌ | ✅ |
-| Supports 10+ languages | ✅ | ✅ | ✅ | ✅ | ✅ |
+The tools below are in the same general space. This table covers the specific capabilities Stratum is built around. Check each tool's current documentation before making a purchasing or adoption decision — features and pricing change.
 
-> Comparison reflects publicly documented features as of early 2025. Paid tiers of some tools may include features not listed here.
+| | Stratum | SonarQube Community | CodeClimate | GitHub Advanced Security | CodeRabbit |
+|---|---|---|---|---|---|
+| **Self-hosted** | ✅ | ✅ | ❌ SaaS | ❌ SaaS ¹ | ❌ SaaS |
+| **Code stays on your servers** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Free for private repos** | ✅ MIT | ✅ Community ed. | ❌ Paid ² | ❌ Paid ³ | ❌ Paid ⁴ |
+| **Inline PR line comments** | ✅ | ❌ ⁵ | ✅ | ✅ | ✅ |
+| **Security vulnerability detection** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Configurable rules** | ✅ YAML file | ✅ Quality Profiles | ✅ Engines | ⚠️ CodeQL queries | ✅ Instructions |
+| **Semantic duplicate detection (AI/embedding-based)** | ✅ | ❌ token-based CPD | ❌ | ❌ | ⚠️ ⁶ |
+| **Per-commit debt score history** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Full git history ingestion** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Semantic cluster tracking over time** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Velocity heatmap** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **PR debt impact prediction** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **AI-generated fix suggestions** | ✅ Groq (opt-in) | ❌ | ❌ | ⚠️ ⁷ | ✅ |
+
+**Notes:**  
+¹ GitHub Enterprise Server can be self-hosted, but requires a paid licence.  
+² CodeClimate is free for public open-source repositories; private repos require a paid plan.  
+³ GitHub Advanced Security is free for public repos on github.com; private repos require GitHub Enterprise.  
+⁴ CodeRabbit has a free tier for public repositories.  
+⁵ SonarQube Community edition posts PR status checks but not inline line-level comments — those require the Developer or Enterprise edition.  
+⁶ CodeRabbit performs AI review of the changed code in a PR; cross-codebase semantic duplicate detection using stored embeddings is not a documented feature as of this writing.  
+⁷ GitHub Copilot Autofix provides AI suggestions but requires a separate Copilot subscription on top of Advanced Security.  
+
+> This comparison is based on each tool's publicly available documentation. Features, pricing, and editions change frequently — verify against current vendor documentation before deciding.
 
 ---
 
@@ -121,7 +131,7 @@ After ingesting your git history, Stratum provides:
 - HMAC-SHA256 verification on every GitHub webhook request
 - All credentials in `.env` only — never in source code
 
-**Full security details: [docs/security.md](docs/security.md)**
+**Full security details: [docs/security-architecture.md](docs/security-architecture.md)**
 
 ---
 
@@ -132,8 +142,47 @@ After ingesting your git history, Stratum provides:
 | [Setup Guide](docs/setup.md) | Docker, GitHub App, ngrok, local dev, troubleshooting |
 | [Feature Guide](docs/features.md) | Every screen and term explained in plain English |
 | [Configuration](docs/configuration.md) | `stratum.yaml` and `.env` reference |
-| [Security](docs/security.md) | Data flow, privacy, credential handling |
-| [Contributing](docs/contributing.md) | Development setup and contribution guidelines |
+| [Security](docs/security-architecture.md) | Data flow, privacy, credential handling |
+| [Contributing](docs/contributing-guide.md) | Development setup and contribution guidelines |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    GH["GitHub"]
+    BR["Browser"]
+
+    GH -->|"PR opened / push"| DJ
+    BR <-->|"HTTP + WebSockets"| DJ
+
+    subgraph compose["Docker Compose"]
+        DJ["Django :8000\n─────────────────\nAPI · Auth · WebSockets"]
+        RD[("Redis 7\nMessage Broker")]
+
+        DJ -->|"queue tasks"| RD
+
+        RD --> WI["ingestion worker ×1\n(git history walk)"]
+        RD --> WP["parsing workers ×4\n(Tree-sitter AST)"]
+        RD --> WE["embedding workers ×2\n(CodeBERT batch)"]
+        RD --> WN["intelligence worker ×1\n(DBSCAN · debt · blame)"]
+        RD --> WR["pr_priority workers ×2\n(always responsive)"]
+
+        WE -->|"batch 64× inference"| EM["FastAPI :8001\nCodeBERT Embedding Service"]
+
+        WI & WP & WE & WN & WR -->|"bulk_create"| PG[("PostgreSQL 16\n+ pgvector HNSW")]
+        EM --> PG
+    end
+
+    DJ -->|"post inline PR comments"| GH
+```
+
+---
+
+## Demo
+
+![Stratum Demo](docs/demo.gif)
 
 ---
 
