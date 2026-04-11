@@ -178,10 +178,23 @@ def _passes(pr_chunk, match_name: str, match_file: str,
         return False
 
     # 3. Function-name token overlap — the primary semantic discriminator
+    #
+    # If match_name_tok is empty it means every token in the matched function's
+    # name is a stop word (e.g. Repository, CodeChunk, Commit, pr_list).
+    # These are almost always model/utility boilerplate whose names carry no
+    # domain signal. Passing them through causes pure-anisotropy false positives.
+    # We require the body vocabulary check to do extra work in this case.
     pr_name_tok    = _name_tokens(pr_chunk.chunk_name)
     match_name_tok = _name_tokens(match_name)
-    if pr_name_tok and match_name_tok and not (pr_name_tok & match_name_tok):
-        # Names share zero meaningful tokens → different semantic purpose
+
+    if not match_name_tok:
+        # Match name has zero meaningful tokens — reject immediately.
+        # The body-vocabulary fallback (filter 4) cannot apply without a
+        # reference token set, so there is nothing to validate similarity against.
+        return False
+
+    if pr_name_tok and not (pr_name_tok & match_name_tok):
+        # Both names have tokens and they share none → different semantic purpose
         return False
 
     # 4. Body vocabulary overlap (belt-and-suspenders)
@@ -234,7 +247,15 @@ def find_semantic_duplicates(
         try:
             rows = (
                 CodeChunk.objects
-                .filter(repo_id=repo_id, language=chunk.language, embedding__isnull=False)
+                .filter(
+                    repo_id=repo_id,
+                    language=chunk.language,
+                    embedding__isnull=False,
+                    # Only match functions and methods — exclude class/module chunks
+                    # that get ingested as top-level nodes (e.g. Django model classes).
+                    # Matching against class definitions is never semantically meaningful.
+                    chunk_type__in=['function', 'method'],
+                )
                 .exclude(file_path=chunk.file_path)
                 .annotate(dist=CosineDistance('embedding', vector))
                 .filter(dist__lte=max_dist)

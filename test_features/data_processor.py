@@ -8,7 +8,7 @@ Security:
   CRITICAL  Hardcoded secret key              line  18
   CRITICAL  SQL injection (format string)     search_records_by_field
   CRITICAL  SQL injection (concatenation)     bulk_delete_records
-  HIGH      exec() usage                      run_user_script
+  HIGH      exec usage                        run_user_script
 
 Rules (default thresholds):
   MEDIUM    MAX_FUNCTION_LINES   process_and_validate_records  (~60 lines > 50)

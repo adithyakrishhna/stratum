@@ -11,7 +11,7 @@ Security (no stratum.yaml needed):
   HIGH      Missing auth decorator     get_admin_dashboard
   CRITICAL  SQL injection (concat)     find_user_by_name
   CRITICAL  SQL injection (f-string)   authenticate_user
-  CRITICAL  eval() usage               execute_dynamic_filter
+  CRITICAL  eval usage                 execute_dynamic_filter
   HIGH      pickle.loads deserialization  authenticate_user
   MEDIUM    Insecure random (token)    generate_password_reset_token
   MEDIUM    Insecure random (session)  _create_session
