@@ -208,7 +208,7 @@ ACCOUNT_AUTHENTICATION_METHOD = 'email'      # consistent with no-username setup
 
 SOCIALACCOUNT_LOGIN_ON_GET = True            # allow GET-based GitHub redirect (OAuth flow)
 SOCIALACCOUNT_AUTO_SIGNUP = True             # auto-create user on first GitHub login
-SOCIALACCOUNT_STORE_TOKENS = False           # don't persist OAuth tokens — not needed yet
+SOCIALACCOUNT_STORE_TOKENS = True            # persist OAuth tokens — needed for repo permission checks
 
 # Credentials are stored in the SocialApp DB record (created by setup_social_apps
 # management command). Do NOT add an 'APP' key here — allauth 65.x finds both the
