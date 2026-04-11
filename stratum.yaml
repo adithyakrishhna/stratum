@@ -1,0 +1,25 @@
+# Stratum configuration for the Stratum repository itself.
+# Add this file to any repository you connect to Stratum.
+# Full reference: stratum.yaml.example
+
+rules:
+  # Flag functions longer than 50 lines
+  max_function_lines: 50
+
+  # Flag functions with cyclomatic complexity > 10
+  max_complexity: 10
+
+  # Imports that should never appear in production code
+  forbidden_imports:
+    python: ["pickle", "shelve"]
+    javascript: ["moment"]
+
+  # Enforce naming conventions per language
+  naming_conventions:
+    python: snake_case
+
+scoring_weights:
+  complexity: 0.3
+  duplication: 0.3
+  violations: 0.2
+  cluster_membership: 0.2
