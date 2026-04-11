@@ -122,16 +122,29 @@ def run_pr_review(
 
     # ------------------------------------------------------------------
     # Step 2: Check embedding service circuit breaker (Principle 5 + 8)
+    #
+    # Two-phase availability check:
+    #   a. Circuit state — if OPEN, skip immediately (fast-fail, no HTTP)
+    #   b. Health probe  — if circuit is CLOSED/HALF-OPEN, ping /health
+    #      before attempting /embed.  This prevents the first real embed call
+    #      from timing out when the service is still warming up after a restart
+    #      (which would consume a circuit breaker failure slot for no reason).
     # ------------------------------------------------------------------
-    semantic_available = is_embedding_available()
+    from apps.pr_review.circuit_breaker import check_embedding_health
+
+    circuit_ok = is_embedding_available()                       # fast, no HTTP
+    health_ok  = circuit_ok and check_embedding_health()        # 5 s probe
+
+    semantic_available = health_ok
 
     if not semantic_available:
+        reason = "embedding_circuit_open" if not circuit_ok else "embedding_health_failed"
         logger.warning(
             "pr_review_semantic_skipped",
             repo_id=repo_id,
             pr_number=pr_number,
             circuit_state=get_circuit_state(),
-            reason="embedding_circuit_open",
+            reason=reason,
         )
     else:
         logger.info(
@@ -219,13 +232,12 @@ def run_pr_review(
     # ------------------------------------------------------------------
     duplicate_matches = []
 
-    # Duplicate detection is OFF by default.
-    # CodeBERT (the embedding model) produces high anisotropy: all Python/JS
-    # functions in the same codebase score 0.97-0.99 cosine similarity due to
-    # shared boilerplate tokens, causing near-100% false-positive rates.
-    # Enable with `enable_duplicate_detection: true` in stratum.yaml once a
-    # code-similarity-specific model (e.g. microsoft/unixcoder-base) is in use.
-    duplicate_detection_enabled = bool(rules_config.get("enable_duplicate_detection", False))
+    # Duplicate detection is ON by default.
+    # Four secondary filters (intra-module skip, line-count ratio, name-token overlap,
+    # body-vocabulary overlap) gate every cosine-similarity candidate and eliminate the
+    # CodeBERT anisotropy false positives that caused the earlier disable decision.
+    # Teams can opt out via `enable_duplicate_detection: false` in stratum.yaml.
+    duplicate_detection_enabled = bool(rules_config.get("enable_duplicate_detection", True))
 
     if semantic_available and all_pr_chunks and duplicate_detection_enabled:
         try:
@@ -536,27 +548,39 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
     lines = content.splitlines()
     chunks = []
 
-    # Node types that represent named callable units across our 10 languages
+    # Node types that represent named callable units across our 10 languages.
+    # Tuple: (node_types_set, chunk_type_label)
     _FUNCTION_TYPES = {
-        "python":     {"function_definition", "async_function_definition"},
-        "javascript": {"function_declaration", "function_expression", "arrow_function", "method_definition"},
-        "typescript": {"function_declaration", "function_expression", "arrow_function", "method_definition"},
-        "tsx":        {"function_declaration", "function_expression", "arrow_function", "method_definition"},
-        "java":       {"method_declaration", "constructor_declaration"},
-        "go":         {"function_declaration", "method_declaration"},
-        "rust":       {"function_item"},
-        "c":          {"function_definition"},
-        "cpp":        {"function_definition"},
-        "ruby":       {"method", "singleton_method"},
-        "php":        {"function_definition", "method_declaration"},
+        "python":     ({"function_definition", "async_function_definition"}, "function"),
+        "javascript": ({"function_declaration", "function_expression", "arrow_function"}, "function"),
+        "typescript": ({"function_declaration", "function_expression", "arrow_function"}, "function"),
+        "tsx":        ({"function_declaration", "function_expression", "arrow_function"}, "function"),
+        "java":       ({"method_declaration", "constructor_declaration"}, "method"),
+        "go":         ({"function_declaration", "method_declaration"}, "function"),
+        "rust":       ({"function_item"}, "function"),
+        "c":          ({"function_definition"}, "function"),
+        "cpp":        ({"function_definition"}, "function"),
+        "ruby":       ({"method", "singleton_method"}, "method"),
+        "php":        ({"function_definition", "method_declaration"}, "function"),
+    }
+    # Method definitions inside classes — label them as "method" for rule evaluation
+    _METHOD_TYPES = {
+        "javascript": {"method_definition"},
+        "typescript": {"method_definition"},
+        "tsx":        {"method_definition"},
     }
 
-    target_types = _FUNCTION_TYPES.get(language, set())
-    if not target_types:
+    lang_entry = _FUNCTION_TYPES.get(language)
+    if not lang_entry:
         return chunks
+    target_types, default_chunk_type = lang_entry
+    method_types = _METHOD_TYPES.get(language, set())
+    all_target_types = target_types | method_types
 
     def _walk(node):
-        if node.type in target_types:
+        if node.type in all_target_types:
+            chunk_type = "method" if node.type in method_types else default_chunk_type
+
             # Try to extract the function name
             name_node = node.child_by_field_name("name")
             chunk_name = name_node.text.decode("utf-8") if name_node else "(anonymous)"
@@ -570,12 +594,13 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
 
             chunks.append(_SimpleChunk(
                 chunk_name=chunk_name,
+                chunk_type=chunk_type,
                 start_line=start_line,
                 end_line=end_line,
                 complexity_score=float(complexity),
                 file_path=file_path,
                 language=language,
-                raw_code=raw_code,   # captured above for embedding
+                raw_code=raw_code,
             ))
 
         for child in node.children:
@@ -587,10 +612,11 @@ def _extract_lightweight_chunks(tree, content: str, language: str, file_path: st
 
 class _SimpleChunk:
     """Minimal chunk object compatible with evaluate_chunk() and duplicate_detector."""
-    __slots__ = ("chunk_name", "start_line", "end_line", "complexity_score", "file_path", "language", "raw_code")
+    __slots__ = ("chunk_name", "chunk_type", "start_line", "end_line", "complexity_score", "file_path", "language", "raw_code")
 
-    def __init__(self, chunk_name, start_line, end_line, complexity_score, file_path, language, raw_code=""):
+    def __init__(self, chunk_name, start_line, end_line, complexity_score, file_path, language, raw_code="", chunk_type="function"):
         self.chunk_name = chunk_name
+        self.chunk_type = chunk_type
         self.start_line = start_line
         self.end_line = end_line
         self.complexity_score = complexity_score
