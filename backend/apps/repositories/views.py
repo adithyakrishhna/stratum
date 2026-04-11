@@ -266,43 +266,93 @@ def connect_repository(request):
             'error': None,
         })
 
-    # Fetch metadata from GitHub API
-    github_repo_id = None
-    is_private = False
-    default_branch = 'main'
+    # --- Security: verify the user actually has write access to this repo ---
+    # Use their stored GitHub OAuth token so GitHub makes the access decision.
+    # If they can't push to it, they shouldn't be able to add it to Stratum.
+    from allauth.socialaccount.models import SocialToken
+    from github import Github, GithubException
+
+    social_token = SocialToken.objects.filter(
+        account__user=request.user,
+        account__provider='github',
+    ).first()
+
+    if not social_token:
+        logger.warning('connect_repo_no_token', user_id=str(request.user.id))
+        return JsonResponse(
+            {
+                'success': False,
+                'error': (
+                    'GitHub access token not found. '
+                    'Please sign out and sign back in with GitHub to reconnect your account.'
+                ),
+                'data': None,
+                'meta': {},
+            },
+            status=403,
+        )
 
     try:
-        from github import Github, GithubException
-        from django.conf import settings
-
-        gh = Github()   # unauthenticated — works for public repos
+        gh = Github(social_token.token)
         gh_repo = gh.get_repo(f'{owner}/{name}')
+
+        # permissions.push is True for owners, admins, and write collaborators.
+        # It is False for anyone who can only read a public repo.
+        if not gh_repo.permissions.push:
+            logger.warning(
+                'connect_repo_access_denied',
+                full_name=f'{owner}/{name}',
+                user_id=str(request.user.id),
+            )
+            return JsonResponse(
+                {
+                    'success': False,
+                    'error': (
+                        f'Access denied: you need write access to {owner}/{name} '
+                        'to connect it to Stratum.'
+                    ),
+                    'data': None,
+                    'meta': {},
+                },
+                status=403,
+            )
+
+        # Use canonical casing and metadata from GitHub
         github_repo_id = gh_repo.id
-        is_private = gh_repo.private
+        is_private     = gh_repo.private
         default_branch = gh_repo.default_branch or 'main'
-        # Use canonical casing from GitHub
-        owner = gh_repo.owner.login
-        name  = gh_repo.name
-        full_name = gh_repo.full_name
+        owner          = gh_repo.owner.login
+        name           = gh_repo.name
+        full_name      = gh_repo.full_name
 
         logger.info(
-            'connect_repo_github_fetched',
+            'connect_repo_access_verified',
             full_name=full_name,
             github_repo_id=github_repo_id,
             user_id=str(request.user.id),
         )
-    except Exception as exc:
-        logger.warning(
-            'connect_repo_github_fetch_failed',
-            full_name=full_name,
-            error=str(exc),
-        )
-        # For private repos or GitHub API issues: create with a placeholder ID
-        # The real ID will be updated when the GitHub App webhook fires.
-        import hashlib
-        github_repo_id = int(
-            hashlib.sha256(full_name.lower().encode()).hexdigest()[:8], 16
-        ) % 2_000_000_000
+
+    except GithubException as exc:
+        status_code = exc.status if hasattr(exc, 'status') else 0
+        if status_code in (404, 403):
+            logger.warning(
+                'connect_repo_not_found_or_forbidden',
+                full_name=f'{owner}/{name}',
+                user_id=str(request.user.id),
+            )
+            return JsonResponse(
+                {
+                    'success': False,
+                    'error': (
+                        f'Repository {owner}/{name} not found, '
+                        'or you do not have access to it.'
+                    ),
+                    'data': None,
+                    'meta': {},
+                },
+                status=404,
+            )
+        raise  # unexpected GitHub error — let Celery retry logic handle it
 
     # Idempotent: look up by full_name first — handles private repos where the webhook
     # already created the record with the real GitHub ID but our unauthenticated API call failed.
