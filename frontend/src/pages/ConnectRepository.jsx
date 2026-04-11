@@ -137,6 +137,12 @@ export default function ConnectRepository() {
   const { data: reposData, isLoading: reposLoading } = useQuery({
     queryKey: ['repos'],
     queryFn: () => api.get('/repositories/').then((r) => r.data),
+    // Poll every 3s while any repo is still running so the status badge updates automatically.
+    // Returns false when nothing is running to avoid unnecessary requests.
+    refetchInterval: (query) => {
+      const repos = query.state.data?.data || []
+      return repos.some((r) => r.analysis_status === 'running') ? 3_000 : false
+    },
   })
   const repos = reposData?.data || []
 
