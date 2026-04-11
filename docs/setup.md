@@ -113,15 +113,18 @@ Everything else in `.env` can stay at its default value to start.
 docker compose up -d
 ```
 
-This starts 9 services: PostgreSQL, Redis, Django, the FastAPI embedding microservice, and 5 Celery workers. First run takes a few minutes as Docker pulls images and builds containers.
+This single command starts everything: PostgreSQL, Redis, Django, the FastAPI embedding microservice, and 5 Celery workers.
 
-Check that everything started:
+> **You do not need to run `python manage.py runserver` or any other command.**  
+> Docker Compose manages all services. `manage.py` is only used by contributors developing Stratum itself — see [Local Development](#local-development-setup-without-full-docker) at the bottom of this guide.
+
+First run takes a few minutes as Docker pulls images and builds containers. Check that everything started:
 
 ```bash
 docker compose ps
 ```
 
-All services should show `Up` or `Up (healthy)`. The embedding service takes the longest to become healthy (it downloads the CodeBERT model on first start, ~400MB).
+All services should show `Up` or `Up (healthy)`. The embedding service takes the longest to become healthy — it downloads the CodeBERT model (~400MB) on first start.
 
 Open **http://localhost:8000** and log in with GitHub.
 
@@ -214,7 +217,10 @@ That's it. Your data (PostgreSQL volume) is preserved between updates.
 
 ## Local Development Setup (Without Full Docker)
 
-For contributors developing Stratum itself — runs Django, Celery, and the embedding service directly on your machine for fast iteration.
+> **This section is for contributors developing Stratum itself.**  
+> If you are a regular user, stop at Step 3 (`docker compose up -d`). Do not run `manage.py` — it will fail unless `docker-compose.dev.yml` is also running and your `.env` is switched to local dev settings.
+
+For contributors — runs Django, Celery, and the embedding service directly on your machine for fast iteration.
 
 ### Start infrastructure only
 

@@ -123,7 +123,7 @@ Select two files to compare their debt timelines on the same chart. Useful for c
 
 **Why it matters:**
 
-Most code review tools look at a PR in isolation. Stratum looks at it in the context of your whole history. If your codebase has 8 different functions that all do essentially the same database lookup — that's Cluster #5. Now when PR #47 adds a 9th version, Stratum warns you *before you merge*. Without this view, the duplication accumulates invisibly until someone does a painful refactoring.
+PR review tells you whether individual code is good. Cluster tracking tells you whether a pattern is spreading. If your codebase has 8 different functions that all do essentially the same database lookup — that's Cluster #5. When PR #47 adds a 9th version, Stratum warns you before you merge so you can decide whether to consolidate first.
 
 **Common use:** Identify the 2-3 clusters that are growing fastest and plan targeted refactoring sessions to consolidate them.
 
@@ -247,4 +247,4 @@ Next analysis run ingests the new commit
 Repository Overview updates to reflect the new state
 ```
 
-The power of Stratum is that these aren't separate tools — they're all views into the same underlying data. A finding on the PR Review Center connects to a pattern on the Cluster Map connects to a spike on the Debt Timeline connects to an entry on the Blame Report. You can trace any debt problem from its current state all the way back to the commit that started it.
+All seven screens are views into the same underlying data. A finding on the PR Review Center connects to a pattern on the Cluster Map, which connects to a spike on the Debt Timeline, which connects to an entry on the Blame Report. Any debt problem can be traced from its current state back to the commit that introduced it.

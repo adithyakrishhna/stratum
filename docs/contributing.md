@@ -6,15 +6,15 @@ Thank you for your interest in contributing.
 
 ## Development Setup
 
-See [docs/setup.md — Local Development](docs/setup.md#local-development-setup-without-full-docker) for full instructions on running Stratum locally without Docker.
+See [setup.md — Local Development](setup.md#local-development-setup-without-full-docker) for full instructions.
 
-Quick version:
+Quick start:
 
 ```bash
 git clone https://github.com/adithyakrishhna/stratum
 cd stratum
 cp .env.example .env
-# Fill in GitHub credentials in .env
+# Fill in GitHub credentials
 
 docker compose -f docker-compose.dev.yml up -d   # start DB + Redis only
 cd backend && pip install -r requirements.txt
@@ -42,32 +42,23 @@ docs:   documentation only
 test:   tests added or updated
 ```
 
-Examples:
-```
-feat: add debt inflection point detection
-fix: eliminate duplicate detection false positives from stop-word names
-docs: add setup guide and feature explanations
-test: add security anti-pattern test files
-```
-
 ---
 
 ## Pull Request Rules
 
 - All PRs target `develop`, never `main`
-- One feature or fix per PR — avoid mixing unrelated changes
-- No `TODO` comments in any committed code
-- No half-built features — a PR either fully works or is not merged
-- Every PR is reviewed by Stratum itself (it runs on its own webhook)
+- One feature or fix per PR — no mixing unrelated changes
+- No `TODO` comments in committed code
+- Features must be complete before merging — no partial implementations
 
 ---
 
 ## Module Boundaries
 
-Stratum is a modular monolith. Each Django app in `backend/apps/` owns its own models and logic. The rules:
+Stratum is a modular monolith. Each Django app in `backend/apps/` owns its own models and logic.
 
 - Never import models or internal functions from another app directly
-- Communicate between apps through defined service interfaces only
+- Communicate between apps through service interfaces only
 - The `pr_review` app orchestrates other apps — it calls service functions, not models
 
 ```
@@ -89,13 +80,13 @@ apps/
 
 ## Code Standards
 
-All new code must follow the system design principles in `CLAUDE.md`:
+New code should follow the same patterns already in the codebase:
 
-1. **Idempotency** — every Celery task must be safe to run twice
-2. **Fault tolerance** — tasks retry with exponential backoff, failed tasks go to the `failed_tasks` table
-3. **Observability** — structured logging (`structlog`) on every pipeline stage with `repo_id`, `stage`, `duration_ms`
-4. **Batch processing** — never process one item at a time; use `bulk_create(batch_size=500)` for DB writes
-5. **API consistency** — every response follows the `{success, data, meta, error}` envelope
+- **Idempotency** — every Celery task safe to run twice (use `get_or_create`)
+- **Fault tolerance** — tasks retry with exponential backoff; exhausted tasks go to `failed_tasks`
+- **Observability** — structured logging (`structlog`) on every pipeline stage with `repo_id`, `stage`, `duration_ms`
+- **Batch processing** — `bulk_create(batch_size=500)` for DB writes, never `.save()` in a loop
+- **API consistency** — every response uses the `{success, data, meta, error}` envelope
 
 ---
 
