@@ -112,7 +112,7 @@ def call_embedding_service(texts: list[str]) -> list[list[float]]:
         response = _requests.post(
             url,
             json={"texts": texts},
-            timeout=30,
+            timeout=60,   # CodeBERT on CPU can take up to ~45s for large batches
         )
         response.raise_for_status()
         data = response.json()
