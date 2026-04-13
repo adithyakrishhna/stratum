@@ -90,6 +90,6 @@ New code should follow the same patterns already in the codebase:
 
 ---
 
-## Questions
+## Feedback & Contributions
 
-Open an issue on GitHub for bugs or feature requests.
+If you encounter any bugs or have feature requests, please feel free to open an issue on GitHub.
