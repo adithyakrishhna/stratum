@@ -6,7 +6,7 @@ Pipeline
     Orchestrator → find_semantic_duplicates(chunks, repo_id, threshold)
         ↓ batch embed all PR chunks (Optimization 1)
         ↓ per-chunk pgvector ANN query (HNSW — Optimization 6)
-        ↓ four secondary filters to eliminate CodeBERT anisotropy false positives
+        ↓ five secondary filters to eliminate CodeBERT anisotropy false positives
         → list[DuplicateMatch]
 
 Why secondary filters are required
@@ -17,16 +17,29 @@ codebase cluster in a narrow cone, scoring 0.97–0.99 cosine similarity even wh
 they implement completely different logic. A cosine threshold alone cannot
 distinguish structural false positives from genuine logic duplication.
 
-Four independent secondary signals gate every candidate match:
+Five independent secondary signals gate every candidate match:
 
   1. Intra-module skip  — same Django app (apps/pr_review/, apps/ingestion/)
                           → skip. Functions in the same app share imports and
                           internal abstractions; that similarity is intentional.
 
-  2. Line-count ratio   — genuinely duplicated logic has similar code length.
+  2. File-role filter   ← STRUCTURAL LAYER — added to fix view-vs-task FPs
+                          A function in views.py / consumers.py is an HTTP handler
+                          that READS and formats data.  A function in tasks.py /
+                          services.py / engine.py COMPUTES and WRITES data.
+                          These are architecturally opposite roles — they can never
+                          be semantic duplicates regardless of score.
+
+                          dashboard/views.py:cluster_map vs clustering/tasks.py:cluster_new_chunks
+                          → 'view' vs 'compute' → REJECTED
+
+                          repositories/views.py:list_branches vs ingestion/views.py:list_repos
+                          → 'view' vs 'view' → allowed (genuine candidate)
+
+  3. Line-count ratio   — genuinely duplicated logic has similar code length.
                           Functions differing by more than 2.5× are skipped.
 
-  3. Function-name token overlap  ← THE KEY FILTER
+  4. Function-name token overlap  ← THE KEY FILTER
                           Split both function names on snake_case/camelCase
                           boundaries. If they share zero meaningful tokens,
                           reject immediately — the names tell us these functions
@@ -45,7 +58,7 @@ Four independent secondary signals gate every candidate match:
                           "process") the match is rejected — generic framework
                           method names carry no domain signal.
 
-  4. Body vocabulary overlap (≥ 15%)
+  5. Body vocabulary overlap (≥ 15%)
                           As a belt-and-suspenders check, the PR chunk's
                           implementation body (docstrings/comments stripped)
                           must share ≥ 15% of the matched function's name tokens.
@@ -103,6 +116,14 @@ _STOP = {
     # e.g. "Cannot process a record" puts 'process' in body_tok of ANY
     # function that returns such a message, regardless of what it does.
     'process', 'handle', 'execute', 'perform',
+    # Stratum feature-domain labels — present in every function belonging to that
+    # feature area (both the read-view AND the compute-task side), so sharing
+    # one of these tokens means nothing about shared logic.
+    # e.g. cluster_map (view) and cluster_new_chunks (task) both contain 'cluster'
+    # but they are architecturally opposite operations.
+    'cluster', 'blame', 'debt', 'webhook', 'finding', 'violation',
+    'ingest', 'ingestion', 'embed', 'embedding', 'parse', 'parsing',
+    'score', 'scores', 'velocity', 'heatmap', 'pipeline',
 }
 
 
@@ -225,6 +246,33 @@ def _same_app(file1: str, file2: str) -> bool:
     return a1 is not None and a1 == a2
 
 
+# File roles — based on filename suffix, not content.
+# 'view'    = HTTP handlers that READ data and return responses
+# 'compute' = background workers / service functions that WRITE or COMPUTE data
+_VIEW_FILE_RE    = re.compile(r'(^|/)views\.py$|(^|/)consumers\.py$|(^|/)serializers\.py$')
+_COMPUTE_FILE_RE = re.compile(r'(^|/)tasks\.py$|(^|/)services\.py$|(^|/)engine\.py$|(^|/)engines\.py$|(^|/)workers\.py$')
+
+
+def _file_role(path: str) -> str:
+    """
+    Classify a file as 'view', 'compute', or 'other' based on its filename.
+
+    'view'    — views.py / consumers.py: read-only HTTP/WebSocket handlers
+    'compute' — tasks.py / services.py / engine.py: background compute workers
+    'other'   — anything else (models, admin, migrations, helpers, etc.)
+
+    A 'view' function and a 'compute' function operating on the same domain
+    are architecturally opposite: one reads + formats, the other writes +
+    computes.  They are never semantic duplicates of each other.
+    """
+    normalized = path.replace('\\', '/').lower()
+    if _VIEW_FILE_RE.search(normalized):
+        return 'view'
+    if _COMPUTE_FILE_RE.search(normalized):
+        return 'compute'
+    return 'other'
+
+
 def _is_embeddable(chunk) -> bool:
     if not getattr(chunk, 'raw_code', None) or not chunk.raw_code.strip():
         return False
@@ -235,25 +283,37 @@ def _is_embeddable(chunk) -> bool:
 def _passes(pr_chunk, match_name: str, match_file: str,
             match_start: int, match_end: int) -> bool:
     """
-    Four-signal secondary validation. Returns True to keep, False to discard.
+    Five-signal secondary validation. Returns True to keep, False to discard.
     """
     # 1. Intra-module: same Django app → structural similarity is intentional
     if _same_app(pr_chunk.file_path, match_file):
         return False
 
-    # 2. Line-count ratio
+    # 2. File-role: HTTP view handlers are never duplicates of compute workers.
+    #    A views.py function reads and formats data; a tasks.py/services.py
+    #    function computes and writes data.  They operate on the same models but
+    #    in opposite directions — no amount of CodeBERT similarity makes them
+    #    genuine duplicates.
+    pr_role    = _file_role(pr_chunk.file_path)
+    match_role = _file_role(match_file)
+    if (pr_role != match_role
+            and pr_role    != 'other'
+            and match_role != 'other'):
+        return False
+
+    # 3. Line-count ratio
     pr_lines    = max(1, getattr(pr_chunk, 'end_line', 0) - getattr(pr_chunk, 'start_line', 0) + 1)
     match_lines = max(1, (match_end or match_start) - match_start + 1)
     if max(pr_lines, match_lines) / min(pr_lines, match_lines) > _MAX_LINE_RATIO:
         return False
 
-    # 3. Function-name token overlap — the primary semantic discriminator
+    # 4. Function-name token overlap — the primary semantic discriminator
     #
     # If either name's token set is empty it means every token is a stop word
     # (e.g. "handle", "process", "Repository", "pr_list").  These names carry
     # zero domain signal — any two functions could share such a name.  Passing
     # them through causes pure-anisotropy false positives that the body-
-    # vocabulary check (filter 4) cannot reliably eliminate on its own.
+    # vocabulary check (filter 5) cannot reliably eliminate on its own.
     pr_name_tok    = _name_tokens(pr_chunk.chunk_name)
     match_name_tok = _name_tokens(match_name)
 
@@ -269,7 +329,7 @@ def _passes(pr_chunk, match_name: str, match_file: str,
         # Names have tokens but share none → different semantic purpose
         return False
 
-    # 4. Body vocabulary overlap (belt-and-suspenders)
+    # 5. Body vocabulary overlap (belt-and-suspenders)
     body_tok = _body_tokens(pr_chunk)
     if body_tok and match_name_tok:
         overlap_ratio = len(body_tok & match_name_tok) / len(match_name_tok)
