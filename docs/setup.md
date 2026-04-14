@@ -176,31 +176,82 @@ From now on, every time a PR is opened or updated on that repo, Stratum will pos
 
 ---
 
-## Receiving Webhooks Locally (ngrok)
+## Receiving Webhooks Locally
 
-When running Stratum on your laptop, GitHub cannot reach `http://localhost:8000` to send webhook events. You need a tunnel that gives your localhost a public URL.
+GitHub webhooks are sent to the URL you configure in your GitHub App. When Stratum runs on your laptop, that URL must be reachable from the internet — `http://localhost:8000` is not.
 
-### Using ngrok
+**The key point:** The webhook URL in your GitHub App is one global setting. It is not per-developer. Webhooks go to whichever machine is behind that URL. If that machine is offline, no PR reviews are triggered until it comes back online.
+
+| Setup | Recommended approach |
+|---|---|
+| **Solo developer on one machine** | Use ngrok with a free static domain — set once, never update again |
+| **Team sharing one Stratum instance** | Deploy to a server — one URL, always on, no tunnel needed |
+| **Team, each developer running locally** | Each person claims their own ngrok static domain and creates their own GitHub App |
+
+---
+
+### Option A — ngrok with a free static domain (recommended for solo / local use)
+
+ngrok gives every free account **one permanent static domain**. The URL never changes, even when you restart your laptop or ngrok. You set the webhook URL once and never touch it again.
+
+**One-time setup:**
 
 1. Install ngrok from [ngrok.com/download](https://ngrok.com/download) and create a free account.
 
+2. Claim your free static domain:
+   - Log in to [dashboard.ngrok.com](https://dashboard.ngrok.com)
+   - Go to **Cloud Edge → Domains → Create Domain**
+   - ngrok assigns you a permanent domain like `your-name.ngrok-free.app`
+
+3. Start ngrok using your static domain:
+   ```bash
+   ngrok http --domain=your-name.ngrok-free.app 8000
+   ```
+
+4. Set your GitHub App's webhook URL **once**:
+   ```
+   https://your-name.ngrok-free.app/webhooks/github/
+   ```
+   This URL never changes. You do not need to update it again.
+
+5. From now on, just run `ngrok http --domain=your-name.ngrok-free.app 8000` each time you work. The webhook URL stays the same.
+
+> You do not need to change `ALLOWED_HOSTS` in `.env` while `DEBUG=True` — Stratum accepts all hosts in debug mode.
+
+---
+
+### Option B — Cloudflare Tunnel (alternative, also free and permanent)
+
+Cloudflare Tunnel is another free option that gives you a stable URL without needing to claim a domain manually.
+
+1. Install `cloudflared`: [developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads)
+
 2. Start a tunnel:
    ```bash
-   ngrok http 8000
+   cloudflared tunnel --url http://localhost:8000
    ```
-   ngrok will show a URL like `https://abc123def456.ngrok-free.app`.
+   It prints a URL like `https://random-name.trycloudflare.com`.
 
-3. Update your GitHub App's webhook URL:
-   - Go to your GitHub App → **Edit** → change Webhook URL to:
-   ```
-   https://abc123def456.ngrok-free.app/webhooks/github/
-   ```
+3. Set your GitHub App's webhook URL to that URL.
 
-4. You do not need to change `ALLOWED_HOSTS` in `.env` while `DEBUG=True` — Stratum accepts all hosts automatically in debug mode.
+**Note:** The free Cloudflare quick tunnel URL can change between restarts. For a permanent Cloudflare URL, set up a named tunnel with a custom domain.
 
-**Note:** Your ngrok URL changes every time you restart ngrok (free plan). Update the webhook URL in your GitHub App each time.
+---
 
-**For a stable URL:** Use ngrok's paid plan with a fixed domain, or use a Cloudflare Tunnel (free). Both work the same way — just use a permanent URL in the GitHub App webhook settings.
+### Option C — Deploy to a server (recommended for teams)
+
+The most reliable approach for teams. One shared Stratum instance, always online, no tunnels.
+
+```bash
+# On the server
+git clone https://github.com/adithyakrishhna/stratum
+cd stratum
+cp .env.example .env
+# Fill in credentials
+docker compose up -d
+```
+
+Set your GitHub App webhook URL to `https://your-domain.com/webhooks/github/`. All team members share this instance — no tunnels, no manual updates, PR reviews always work.
 
 ---
 

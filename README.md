@@ -28,7 +28,7 @@ docker compose up -d
 
 Open **http://localhost:8000**, log in with GitHub, connect a repository, click **Analyze**.
 
-**Full setup guide (GitHub App, ngrok, local dev): [docs/setup.md](docs/setup.md)**
+**Full setup guide (GitHub App, webhook tunnel, local dev): [docs/setup.md](docs/setup.md)**
 
 ---
 
