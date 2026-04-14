@@ -333,16 +333,23 @@ def _load_weights(repo_id: str) -> dict:
     """
     Load debt scoring weights from stratum.yaml for this repo.
     Falls back to defaults if not configured.
+
+    stratum.yaml uses:
+        scoring_weights:
+          complexity: 0.3
+          duplication: 0.3
+          violations: 0.2
+          cluster_membership: 0.2
     """
     try:
         from apps.rules.loader import load_rules
         rules_config = load_rules(repo_id)
-        scoring = rules_config.get('debt_scoring', {})
+        scoring = rules_config.get('scoring_weights', {})
         return {
-            'complexity_weight':  float(scoring.get('complexity_weight',  _DEFAULT_WEIGHTS['complexity_weight'])),
-            'duplication_weight': float(scoring.get('duplication_weight', _DEFAULT_WEIGHTS['duplication_weight'])),
-            'violation_weight':   float(scoring.get('violation_weight',   _DEFAULT_WEIGHTS['violation_weight'])),
-            'cluster_weight':     float(scoring.get('cluster_weight',     _DEFAULT_WEIGHTS['cluster_weight'])),
+            'complexity_weight':  float(scoring.get('complexity',        _DEFAULT_WEIGHTS['complexity_weight'])),
+            'duplication_weight': float(scoring.get('duplication',       _DEFAULT_WEIGHTS['duplication_weight'])),
+            'violation_weight':   float(scoring.get('violations',        _DEFAULT_WEIGHTS['violation_weight'])),
+            'cluster_weight':     float(scoring.get('cluster_membership', _DEFAULT_WEIGHTS['cluster_weight'])),
         }
     except Exception:
         return dict(_DEFAULT_WEIGHTS)
