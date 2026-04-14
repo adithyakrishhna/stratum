@@ -66,6 +66,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'config.middleware.AdminAccessMiddleware',   # redirect non-staff away from /admin/
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
@@ -224,10 +225,12 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 
-# In dev, OAuth callback lands on port 8000 — redirect back to Vite (5173).
-# In production, Django serves the SPA so a relative path works fine.
-LOGIN_REDIRECT_URL = 'http://localhost:5173/dashboard/' if DEBUG else '/dashboard/'
-LOGOUT_REDIRECT_URL = 'http://localhost:5173/login' if DEBUG else '/login'
+# Relative paths keep auth entirely on the same origin (localhost:8000).
+# The compiled React bundle at static/frontend/ handles both routes.
+# For hot-reload dev work, navigate to localhost:5173 after login — the
+# Vite proxy shares the same localhost:8000 session cookie automatically.
+LOGIN_REDIRECT_URL = '/dashboard/'
+LOGOUT_REDIRECT_URL = '/login'
 
 # ---------------------------------------------------------------------------
 # Static and media files

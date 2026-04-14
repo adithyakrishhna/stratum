@@ -40,6 +40,11 @@ repo_clones/
 secrets/*
 !secrets/.gitkeep
 
+# Large demo assets — host via GitHub CDN (drag-drop on github.com), never commit to git
+docs/*.mp4
+docs/*.mov
+docs/*.avi
+
 # code review graph
 .mcp.json
 .opencode.json

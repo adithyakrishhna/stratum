@@ -21,10 +21,11 @@ import csv
 import io
 
 import structlog
-from django.contrib.auth.decorators import login_required
 from django.db.models import Avg, Count, Max, Q, Sum
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_GET, require_POST
+
+from config.decorators import api_login_required
 
 logger = structlog.get_logger(__name__)
 
@@ -61,7 +62,7 @@ def _ok(data, meta=None):
 # GET /api/dashboard/<uuid>/overview/
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def overview(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -160,7 +161,7 @@ def overview(request, repo_id):
 # GET /api/dashboard/<uuid>/prs/
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def pr_list(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -220,7 +221,7 @@ def pr_list(request, repo_id):
 # GET /api/dashboard/<uuid>/debt/timeline/?file_path=...
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def debt_timeline(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -278,7 +279,7 @@ def debt_timeline(request, repo_id):
 # GET /api/dashboard/<uuid>/clusters/
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def cluster_map(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -321,7 +322,7 @@ def cluster_map(request, repo_id):
 # GET /api/dashboard/<uuid>/heatmap/?language=&directory=
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def velocity_heatmap(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -388,7 +389,7 @@ def velocity_heatmap(request, repo_id):
 # GET  /api/dashboard/<uuid>/blame/?format=csv   (CSV export)
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def blame_report(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -444,7 +445,7 @@ def blame_report(request, repo_id):
 # GET /api/dashboard/<uuid>/pipeline/
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_GET
 def pipeline_monitor(request, repo_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -497,7 +498,7 @@ def pipeline_monitor(request, repo_id):
 # POST /api/dashboard/<uuid>/failed-tasks/<task_id>/dismiss/
 # ---------------------------------------------------------------------------
 
-@login_required
+@api_login_required
 @require_POST
 def retry_failed_task(request, repo_id, task_id):
     repo, err = _get_repo_or_403(request, repo_id)
@@ -532,7 +533,7 @@ def retry_failed_task(request, repo_id, task_id):
     return _ok({'status': 'queued'})
 
 
-@login_required
+@api_login_required
 @require_POST
 def dismiss_failed_task(request, repo_id, task_id):
     repo, err = _get_repo_or_403(request, repo_id)
