@@ -215,7 +215,7 @@ _SQL_PATTERNS: dict[str, list[re.Pattern]] = {
     "python": [
         re.compile(r'(?i)(execute|executemany)\s*\(\s*[f"\'](SELECT|INSERT|UPDATE|DELETE|DROP)[^)]*\+'),
         re.compile(r'(?i)(execute|executemany)\s*\(\s*"[^"]*"\s*%\s*\('),
-        re.compile(r'(?i)f["\'].*?(SELECT|INSERT|UPDATE|DELETE|DROP).*?\{[^}]+\}'),
+        re.compile(r'(?i)f["\'].*?\b(SELECT|INSERT|UPDATE|DELETE|DROP)\b.*?\{[^}]+\}'),
         re.compile(r'(?i)["\'].*?(SELECT|INSERT|UPDATE|DELETE|DROP).*["\']\.format\s*\('),
         re.compile(r'(?i)(sql|query)\s*\+=\s*["\']'),
         re.compile(r'(?i)["\'].*(SELECT|INSERT|UPDATE|DELETE|DROP).*["\']\s*\+\s*\w'),
