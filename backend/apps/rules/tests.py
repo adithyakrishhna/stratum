@@ -125,6 +125,48 @@ class TestValidateAndFillDefaults(SimpleTestCase):
         self.assertEqual(cfg["rules"]["max_function_lines"], 50)
         self.assertEqual(cfg["rules"]["max_complexity"], 10)
 
+    def test_semantic_section_defaults_present(self):
+        cfg = _validate_and_fill_defaults({})
+        self.assertIn("semantic", cfg)
+        self.assertAlmostEqual(cfg["semantic"]["similarity_threshold"], 0.97)
+        self.assertFalse(cfg["semantic"]["cross_language_clustering"])
+
+    def test_custom_similarity_threshold_preserved(self):
+        cfg = _validate_and_fill_defaults({
+            "semantic": {"similarity_threshold": 0.85}
+        })
+        self.assertAlmostEqual(cfg["semantic"]["similarity_threshold"], 0.85)
+
+    def test_similarity_threshold_out_of_range_falls_back(self):
+        # Threshold must be between 0 and 1 — invalid values fall back to default
+        cfg = _validate_and_fill_defaults({
+            "semantic": {"similarity_threshold": 1.5}
+        })
+        self.assertAlmostEqual(cfg["semantic"]["similarity_threshold"], 0.97)
+
+    def test_cross_language_clustering_enabled(self):
+        cfg = _validate_and_fill_defaults({
+            "semantic": {"cross_language_clustering": True}
+        })
+        self.assertTrue(cfg["semantic"]["cross_language_clustering"])
+
+    def test_scoring_weights_key_names_match_stratum_yaml(self):
+        # Regression: _load_weights was reading 'debt_scoring' (wrong key).
+        # Verify the loader correctly reads 'scoring_weights' with sub-keys
+        # complexity / duplication / violations / cluster_membership.
+        cfg = _validate_and_fill_defaults({
+            "scoring_weights": {
+                "complexity": 0.5,
+                "duplication": 0.2,
+                "violations": 0.2,
+                "cluster_membership": 0.1,
+            }
+        })
+        self.assertAlmostEqual(cfg["scoring_weights"]["complexity"], 0.5)
+        self.assertAlmostEqual(cfg["scoring_weights"]["duplication"], 0.2)
+        self.assertAlmostEqual(cfg["scoring_weights"]["violations"], 0.2)
+        self.assertAlmostEqual(cfg["scoring_weights"]["cluster_membership"], 0.1)
+
 
 # ---------------------------------------------------------------------------
 # Rule evaluator: evaluate_chunk
