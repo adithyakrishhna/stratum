@@ -122,7 +122,7 @@ _STOP = {
     # e.g. cluster_map (view) and cluster_new_chunks (task) both contain 'cluster'
     # but they are architecturally opposite operations.
     'cluster', 'blame', 'debt', 'webhook', 'finding', 'violation',
-    'ingest', 'ingestion', 'embed', 'embedding', 'parse', 'parsing',
+    'ingest', 'ingestion', 'parse', 'parsing',
     'score', 'scores', 'velocity', 'heatmap', 'pipeline',
 }
 
