@@ -215,3 +215,98 @@ class TestInsecureRandomDetector(SimpleTestCase):
         findings = self.detector.detect("auth.js", content, "javascript")
         insecure = [f for f in findings if f.detector == "INSECURE_RANDOM"]
         self.assertEqual(insecure, [])
+
+
+# ---------------------------------------------------------------------------
+# DangerousFunctionDetector — false positive regression tests (this session)
+# ---------------------------------------------------------------------------
+
+class TestDangerousFunctionDetectorFalsePositives(SimpleTestCase):
+    """
+    Regression tests for false positives introduced when Stratum scans its
+    own detector source code.  These verify the # nosec suppression and
+    the word-boundary SQL fix work correctly.
+    """
+
+    def setUp(self):
+        self.detector = DangerousFunctionDetector()
+
+    def test_nosec_comment_suppresses_finding(self):
+        content = 'result = eval(user_input)  # nosec'
+        findings = self.detector.detect("app.py", content, "python")
+        self.assertEqual(findings, [])
+
+    def test_nosec_suppresses_exec(self):
+        content = 'exec(code)  # nosec'
+        findings = self.detector.detect("app.py", content, "python")
+        self.assertEqual(findings, [])
+
+    def test_eval_in_string_description_not_flagged(self):
+        # The pattern definition line in detectors.py looks like:
+        # (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
+        # The # nosec suppresses it — verify the mechanism
+        content = '(re.compile(r\'\\beval\\s*\\(\'), "Use of eval()", "critical"),  # nosec'
+        findings = self.detector.detect("detectors.py", content, "python")
+        self.assertEqual(findings, [])
+
+    def test_eval_without_nosec_still_detected(self):
+        # nosec only suppresses when present — real eval() must still be caught
+        content = 'result = eval(user_input)'
+        findings = self.detector.detect("app.py", content, "python")
+        self.assertTrue(any("eval" in f.title.lower() for f in findings))
+
+    def test_yaml_safeloader_not_flagged(self):
+        content = 'data = yaml.load(stream, Loader=yaml.SafeLoader)'
+        findings = self.detector.detect("app.py", content, "python")
+        yaml_findings = [f for f in findings if "yaml" in f.title.lower()]
+        self.assertEqual(yaml_findings, [])
+
+    def test_yaml_without_safeloader_flagged(self):
+        content = 'data = yaml.load(stream)'
+        findings = self.detector.detect("app.py", content, "python")
+        self.assertTrue(any("yaml" in f.title.lower() for f in findings))
+
+
+# ---------------------------------------------------------------------------
+# SqlInjectionDetector — word-boundary false positive regression (this session)
+# ---------------------------------------------------------------------------
+
+class TestSqlInjectionWordBoundary(SimpleTestCase):
+    """
+    Regression test: f-strings containing 'Updated' (which contains the
+    substring 'UPDATE') were incorrectly flagged as SQL injection before
+    the \\b word-boundary fix.
+    """
+
+    def setUp(self):
+        self.detector = SqlInjectionDetector()
+
+    def test_updated_in_fstring_output_not_flagged(self):
+        # Exact line from backfill_raw_code.py that was falsely flagged
+        content = (
+            "self.stdout.write(\n"
+            "    self.style.SUCCESS(\n"
+            "        f'Done. Updated: {updated} | Skipped (file not in clone): {skipped_no_file}'\n"
+            "    )\n"
+            ")"
+        )
+        findings = self.detector.detect("backfill_raw_code.py", content, "python")
+        self.assertEqual(findings, [])
+
+    def test_select_in_fstring_still_flagged(self):
+        # A real SQL injection must still be caught
+        content = 'cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")'
+        findings = self.detector.detect("db.py", content, "python")
+        self.assertTrue(any(f.detector == "SQL_INJECTION" for f in findings))
+
+    def test_update_standalone_in_fstring_flagged(self):
+        # UPDATE as a standalone SQL keyword in an f-string must still trigger
+        content = 'cursor.execute(f"UPDATE users SET name = {name} WHERE id = {uid}")'
+        findings = self.detector.detect("db.py", content, "python")
+        self.assertTrue(any(f.detector == "SQL_INJECTION" for f in findings))
+
+    def test_selected_word_not_flagged(self):
+        # "Selected" contains "Select" — must NOT trigger (word boundary)
+        content = "msg = f'Selected item: {item_name} from list'"
+        findings = self.detector.detect("views.py", content, "python")
+        self.assertEqual(findings, [])

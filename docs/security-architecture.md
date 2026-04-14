@@ -50,7 +50,7 @@ All data is stored in **your PostgreSQL database** running in your Docker enviro
 
 ## Webhook Security (HMAC-SHA256)
 
-Every request from GitHub to your Stratum webhook endpoint (`/webhooks/github/`) is verified before any processing begins.
+Every request from GitHub to your Stratum webhook endpoint (`/api/webhooks/github/`) is verified before any processing begins.
 
 **How it works:**
 1. When you set up your GitHub App, you generate a webhook secret and store it in `.env` as `GITHUB_WEBHOOK_SECRET`

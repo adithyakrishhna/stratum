@@ -37,9 +37,13 @@ Four independent secondary signals gate every candidate match:
                           ingest_repo     → {ingest, repo}
                           Intersection = ∅  → REJECTED
 
-                          embed_chunks    → {embed, chunk}
+                          embed_chunks    → {embed}        (chunks is a stop word)
                           get_embed_batch → {embed, batch}
                           Intersection = {embed} → passes (genuine candidate)
+
+                          If either name's token set is empty (e.g. "handle",
+                          "process") the match is rejected — generic framework
+                          method names carry no domain signal.
 
   4. Body vocabulary overlap (≥ 15%)
                           As a belt-and-suspenders check, the PR chunk's
@@ -93,7 +97,7 @@ _STOP = {
     'args', 'kwargs', 'params', 'config', 'logger', 'logging', 'data',
     # Domain-level tokens present in almost every function of this codebase
     'repo', 'repository', 'github', 'user', 'branch', 'commit', 'file',
-    'path', 'code', 'chunk', 'object', 'list', 'dict', 'array',
+    'path', 'code', 'chunk', 'chunks', 'object', 'list', 'dict', 'array',
     # Ultra-generic function verbs — appear in function names AND in string
     # literals / error messages everywhere, giving zero semantic signal.
     # e.g. "Cannot process a record" puts 'process' in body_tok of ANY
@@ -184,19 +188,24 @@ def _blended_similarity(
     pr_raw_code: str,
     match_raw_code: str | None,
     language: str,
-) -> float:
+) -> float | None:
     """
     Blend CodeBERT cosine similarity (70%) with token Jaccard (30%).
 
-    The blended score aligns with developer intuition better than raw cosine
-    alone, because CodeBERT is anisotropic and overestimates similarity for
-    structurally similar but semantically distinct functions.
+    Returns None when match_raw_code is unavailable AND STORE_RAW_CODE=True.
+    The caller treats None as "skip this match" — we cannot produce a reliable
+    score without the token side, and falling back to raw CodeBERT cosine causes
+    false positives (CodeBERT scores 0.97–0.99 for all same-language functions
+    due to embedding anisotropy).
 
-    Falls back to pure embedding similarity when match raw_code is unavailable
-    (STORE_RAW_CODE=false in production default).
+    When STORE_RAW_CODE=False, raw_code is never stored by design; falling back
+    to the embedding score is the documented trade-off in that mode.
     """
     if not match_raw_code:
-        return embedding_sim
+        from django.conf import settings
+        if getattr(settings, 'STORE_RAW_CODE', False):
+            return None  # raw_code missing despite STORE_RAW_CODE=True — skip
+        return embedding_sim  # STORE_RAW_CODE=False: documented fallback
     jaccard = _jaccard_similarity(pr_raw_code or '', match_raw_code, language)
     if jaccard is None:
         return embedding_sim
@@ -240,22 +249,24 @@ def _passes(pr_chunk, match_name: str, match_file: str,
 
     # 3. Function-name token overlap — the primary semantic discriminator
     #
-    # If match_name_tok is empty it means every token in the matched function's
-    # name is a stop word (e.g. Repository, CodeChunk, Commit, pr_list).
-    # These are almost always model/utility boilerplate whose names carry no
-    # domain signal. Passing them through causes pure-anisotropy false positives.
-    # We require the body vocabulary check to do extra work in this case.
+    # If either name's token set is empty it means every token is a stop word
+    # (e.g. "handle", "process", "Repository", "pr_list").  These names carry
+    # zero domain signal — any two functions could share such a name.  Passing
+    # them through causes pure-anisotropy false positives that the body-
+    # vocabulary check (filter 4) cannot reliably eliminate on its own.
     pr_name_tok    = _name_tokens(pr_chunk.chunk_name)
     match_name_tok = _name_tokens(match_name)
 
-    if not match_name_tok:
-        # Match name has zero meaningful tokens — reject immediately.
-        # The body-vocabulary fallback (filter 4) cannot apply without a
-        # reference token set, so there is nothing to validate similarity against.
+    if not pr_name_tok:
+        # PR chunk name has zero meaningful tokens — cannot discriminate.
         return False
 
-    if pr_name_tok and not (pr_name_tok & match_name_tok):
-        # Both names have tokens and they share none → different semantic purpose
+    if not match_name_tok:
+        # Match name has zero meaningful tokens — cannot discriminate.
+        return False
+
+    if not (pr_name_tok & match_name_tok):
+        # Names have tokens but share none → different semantic purpose
         return False
 
     # 4. Body vocabulary overlap (belt-and-suspenders)
@@ -345,6 +356,8 @@ def find_semantic_duplicates(
                     match_raw_code=row.get('raw_code'),
                     language=chunk.language,
                 )
+                if similarity is None:
+                    continue  # raw_code missing — cannot compute reliable score
                 all_matches.append(DuplicateMatch(
                     file_path=chunk.file_path,
                     chunk_name=chunk.chunk_name,

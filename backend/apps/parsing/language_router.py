@@ -114,6 +114,16 @@ _SKIP_PATTERNS: list[re.Pattern] = [
     re.compile(r'yarn\.lock$'),
     re.compile(r'Gemfile\.lock$'),
     re.compile(r'Cargo\.lock$'),
+    # Test files — intentionally contain dangerous-looking fixture strings
+    # (e.g. eval(user_input), SELECT queries, hardcoded passwords as test input).
+    # Security detectors produce near-100% false positives on test code.
+    re.compile(r'(?:^|/)tests?\.py$'),            # tests.py / test.py
+    re.compile(r'(?:^|/)test_[^/]+\.py$'),        # test_*.py  (pytest style)
+    re.compile(r'(?:^|/)[^/]+_tests?\.py$'),      # *_test.py / *_tests.py
+    re.compile(r'(?:^|/)tests?/'),                # tests/ or test/ directory
+    re.compile(r'(?:^|/)__tests__/'),             # __tests__/ (JS/TS Jest style)
+    re.compile(r'\.test\.[jt]sx?$'),              # *.test.js/ts/jsx/tsx  (Jest)
+    re.compile(r'\.spec\.[jt]sx?$'),              # *.spec.js/ts/jsx/tsx  (Jest/Jasmine)
 ]
 
 # Any line longer than this → treat file as minified, skip it

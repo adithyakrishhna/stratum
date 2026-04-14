@@ -244,7 +244,7 @@ def run_pr_review(
             from apps.pr_review.duplicate_detector import find_semantic_duplicates
 
             similarity_threshold = float(
-                rules_config.get("similarity_threshold", 0.97)
+                rules_config.get("semantic", {}).get("similarity_threshold", 0.97)
             )
             duplicate_matches = find_semantic_duplicates(
                 chunks=all_pr_chunks,
@@ -297,7 +297,7 @@ def run_pr_review(
         try:
             from apps.pr_review.debt_impact import predict_debt_impact, compute_debt_impact_score
 
-            impact_threshold = float(rules_config.get("debt_impact_threshold", 0.05))
+            impact_threshold = float(rules_config.get("semantic", {}).get("debt_impact_threshold", 0.05))
             cluster_impacts = predict_debt_impact(
                 chunks=all_pr_chunks,
                 repo_id=repo_id,

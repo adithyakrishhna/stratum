@@ -32,6 +32,10 @@ DEFAULT_CONFIG: dict = {
         "violations": 0.2,
         "cluster_membership": 0.2,
     },
+    "semantic": {
+        "similarity_threshold": 0.97,
+        "cross_language_clustering": False,
+    },
 }
 
 
@@ -107,6 +111,7 @@ def _validate_and_fill_defaults(raw: dict) -> dict:
     """
     rules_raw = raw.get("rules", {})
     weights_raw = raw.get("scoring_weights", {})
+    semantic_raw = raw.get("semantic", {})
 
     return {
         "rules": {
@@ -120,6 +125,12 @@ def _validate_and_fill_defaults(raw: dict) -> dict:
             "duplication": _safe_float(weights_raw.get("duplication"), default=0.3),
             "violations": _safe_float(weights_raw.get("violations"), default=0.2),
             "cluster_membership": _safe_float(weights_raw.get("cluster_membership"), default=0.2),
+        },
+        "semantic": {
+            "similarity_threshold": _safe_float(
+                semantic_raw.get("similarity_threshold"), default=0.97
+            ),
+            "cross_language_clustering": bool(semantic_raw.get("cross_language_clustering", False)),
         },
     }
 

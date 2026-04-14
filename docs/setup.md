@@ -43,8 +43,8 @@ Stratum uses a GitHub App to receive webhook events (PR opened, updated) and pos
 | Webhook secret | Generate a random string — paste it in `.env` as `GITHUB_WEBHOOK_SECRET` |
 
 **Webhook URL:**
-- **Docker / production with a real domain:** `https://yourdomain.com/webhooks/github/`
-- **Local development (your laptop):** You need a tunnel — see [Receiving Webhooks Locally](#receiving-webhooks-locally-ngrok). For now, put a placeholder like `https://placeholder.example.com/webhooks/github/` and update it after ngrok is running.
+- **Docker / production with a real domain:** `https://yourdomain.com/api/webhooks/github/`
+- **Local development (your laptop):** You need a tunnel — see [Receiving Webhooks Locally](#receiving-webhooks-locally-ngrok). For now, put a placeholder like `https://placeholder.example.com/api/webhooks/github/` and update it after ngrok is running.
 
 ### 2c. Set permissions
 
@@ -176,11 +176,23 @@ From now on, every time a PR is opened or updated on that repo, Stratum will pos
 
 ---
 
-## Receiving Webhooks Locally (ngrok)
+## Receiving Webhooks Locally
 
-When running Stratum on your laptop, GitHub cannot reach `http://localhost:8000` to send webhook events. You need a tunnel that gives your localhost a public URL.
+GitHub webhooks are sent to the URL you configure in your GitHub App. When Stratum runs on your laptop, that URL must be reachable from the internet — `http://localhost:8000` is not.
 
-### Using ngrok
+**The key point:** The webhook URL in your GitHub App is one global setting. It is not per-developer. Webhooks go to whichever machine is behind that URL. If that machine is offline or the tunnel is not running, GitHub fires the webhook but nothing receives it — and GitHub does not retry automatically. You must redeliver missed events manually from the GitHub App's Advanced tab.
+
+| Setup | Recommended approach |
+|---|---|
+| **Solo developer, local machine** | ngrok free — URL changes each restart, update webhook URL each session |
+| **Solo developer, wants permanent URL** | Deploy to a free server (Railway, Render) — set once, always on |
+| **Team** | Deploy to a shared server — one URL, everyone uses the same instance |
+
+---
+
+### Option A — ngrok (free, simplest to start)
+
+The quickest way to get webhooks working locally. The URL changes every time you restart ngrok, so you need to update the GitHub App webhook URL each session.
 
 1. Install ngrok from [ngrok.com/download](https://ngrok.com/download) and create a free account.
 
@@ -188,19 +200,56 @@ When running Stratum on your laptop, GitHub cannot reach `http://localhost:8000`
    ```bash
    ngrok http 8000
    ```
-   ngrok will show a URL like `https://abc123def456.ngrok-free.app`.
+   ngrok prints a URL like `https://abc123def456.ngrok-free.app`.
 
 3. Update your GitHub App's webhook URL:
-   - Go to your GitHub App → **Edit** → change Webhook URL to:
+   - Go to **GitHub App → Edit → Webhook URL** and paste the ngrok URL:
    ```
-   https://abc123def456.ngrok-free.app/webhooks/github/
+   https://abc123def456.ngrok-free.app/api/webhooks/github/
    ```
 
-4. You do not need to change `ALLOWED_HOSTS` in `.env` while `DEBUG=True` — Stratum accepts all hosts automatically in debug mode.
+4. That's it. Repeat step 2–3 each time you restart ngrok.
 
-**Note:** Your ngrok URL changes every time you restart ngrok (free plan). Update the webhook URL in your GitHub App each time.
+> You do not need to change `ALLOWED_HOSTS` in `.env` while `DEBUG=True` — Stratum accepts all hosts in debug mode.
 
-**For a stable URL:** Use ngrok's paid plan with a fixed domain, or use a Cloudflare Tunnel (free). Both work the same way — just use a permanent URL in the GitHub App webhook settings.
+**Missed a webhook?** If you opened a PR while ngrok was not running, GitHub will not automatically resend it. To trigger a review: go to **GitHub App → Advanced → Recent Deliveries**, find the missed event, and click **Redeliver**.
+
+---
+
+### Option B — Cloudflare Tunnel (free, URL changes on restart)
+
+An alternative to ngrok. The quick tunnel URL also changes between restarts.
+
+1. Install `cloudflared`: [developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads)
+
+2. Start a tunnel:
+   ```bash
+   cloudflared tunnel --url http://localhost:8000
+   ```
+   It prints a URL like `https://random-name.trycloudflare.com`.
+
+3. Update your GitHub App webhook URL to that URL.
+
+Same limitation as ngrok free: update the webhook URL each session.
+
+---
+
+### Option C — Deploy to a server (permanent, recommended)
+
+The only option where you set the webhook URL once and never touch it again. Works for solo developers and teams.
+
+Free hosting options that work with Stratum's Docker Compose setup: **Railway**, **Render**, or any VPS.
+
+```bash
+# On the server
+git clone https://github.com/adithyakrishhna/stratum
+cd stratum
+cp .env.example .env
+# Fill in credentials
+docker compose up -d
+```
+
+Set your GitHub App webhook URL to `https://your-domain.com/api/webhooks/github/`. The server is always on — PR reviews trigger automatically regardless of whether your laptop is open.
 
 ---
 
