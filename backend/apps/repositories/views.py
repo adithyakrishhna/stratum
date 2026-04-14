@@ -1,16 +1,16 @@
 import json
 
 import structlog
-from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST, require_GET
 
+from config.decorators import api_login_required
 from .rate_limiter import acquire_analysis_slot, get_active_count, MAX_CONCURRENT_ANALYSES
 
 logger = structlog.get_logger(__name__)
 
 
-@login_required
+@api_login_required
 def current_user(request):
     """Return the authenticated user's profile for the React frontend."""
     user = request.user
@@ -48,7 +48,7 @@ def current_user(request):
     })
 
 
-@login_required
+@api_login_required
 @require_GET
 def list_repositories(request):
     """
@@ -82,7 +82,7 @@ def list_repositories(request):
     })
 
 
-@login_required
+@api_login_required
 @require_POST
 def trigger_analysis(request, repo_id):
     """
@@ -207,7 +207,7 @@ def trigger_analysis(request, repo_id):
     }, status=202)
 
 
-@login_required
+@api_login_required
 @require_POST
 def connect_repository(request):
     """
@@ -405,7 +405,7 @@ def connect_repository(request):
     }, status=201 if created else 200)
 
 
-@login_required
+@api_login_required
 @require_POST
 def toggle_pr_review(request, repo_id):
     """
@@ -446,7 +446,7 @@ def toggle_pr_review(request, repo_id):
     })
 
 
-@login_required
+@api_login_required
 @require_POST
 def disconnect_repository(request, repo_id):
     """Remove the UserRepository link (does not delete the repo or its data)."""
@@ -467,7 +467,7 @@ def disconnect_repository(request, repo_id):
     return JsonResponse({'success': True, 'data': None, 'meta': {}, 'error': None})
 
 
-@login_required
+@api_login_required
 @require_GET
 def list_branches(request, repo_id):
     """

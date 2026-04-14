@@ -28,6 +28,11 @@ docker compose up -d
 
 Open **http://localhost:8000**, log in with GitHub, connect a repository, click **Analyze**.
 
+> **GitHub App callback URL** — before logging in, set the "User authorization callback URL"
+> in your GitHub App settings (`github.com/settings/apps → Edit → Identifying and authorizing users`) to:
+> `http://localhost:8000/accounts/github/login/callback/`
+> Without this, GitHub blocks the OAuth redirect with a "redirect_uri not associated" error.
+
 **Full setup guide (GitHub App, webhook tunnel, local dev): [docs/setup.md](docs/setup.md)**
 
 ---
@@ -181,7 +186,8 @@ flowchart TD
 
 ## Demo
 
-![Stratum Demo](docs/demo.gif)
+<!-- To embed the demo: edit this file on github.com, drag-drop docs/demo.mp4 into the editor.
+     GitHub uploads it to their CDN and generates a URL — paste it here to replace this comment. -->
 
 ---
 
