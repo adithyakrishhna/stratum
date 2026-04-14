@@ -280,41 +280,41 @@ class SqlInjectionDetector(BaseDetector):
 # (pattern, title, severity)
 _DANGEROUS: dict[str, list[tuple[re.Pattern, str, str]]] = {
     "python": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
-        (re.compile(r'\bexec\s*\('), "Use of exec()", "high"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
+        (re.compile(r'\bexec\s*\('), "Use of exec()", "high"),  # nosec
         (re.compile(r'\bpickle\s*\.\s*loads?\s*\('), "Insecure deserialization via pickle", "high"),
-        (re.compile(r'\byaml\s*\.\s*load\s*\((?!.*Loader\s*=\s*yaml\.SafeLoader)(?!.*Loader\s*=\s*yaml\.FullLoader)'), "yaml.load() without SafeLoader", "high"),
-        (re.compile(r'\bmarshal\s*\.\s*loads?\s*\('), "Use of marshal.loads()", "high"),
+        (re.compile(r'\byaml\s*\.\s*load\s*\((?!.*Loader\s*=\s*yaml\.SafeLoader)(?!.*Loader\s*=\s*yaml\.FullLoader)'), "yaml.load() without SafeLoader", "high"),  # nosec
+        (re.compile(r'\bmarshal\s*\.\s*loads?\s*\('), "Use of marshal.loads()", "high"),  # nosec
         (re.compile(r'\bos\s*\.\s*system\s*\('), "Use of os.system()", "medium"),
         (re.compile(r'\bsubprocess\s*\.\s*(call|run|Popen)\s*\([^)]*shell\s*=\s*True'), "subprocess with shell=True", "high"),
         (re.compile(r'\b__import__\s*\('), "Dynamic __import__() call", "medium"),
     ],
     "javascript": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
         (re.compile(r'\bnew\s+Function\s*\('), "Use of new Function()", "high"),
         (re.compile(r'\bdocument\.write\s*\('), "Use of document.write()", "medium"),
         (re.compile(r'\.innerHTML\s*=(?!=)'), "Direct innerHTML assignment", "medium"),
         (re.compile(r'\.outerHTML\s*=(?!=)'), "Direct outerHTML assignment", "medium"),
     ],
     "typescript": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
         (re.compile(r'\bnew\s+Function\s*\('), "Use of new Function()", "high"),
         (re.compile(r'\.innerHTML\s*=(?!=)'), "Direct innerHTML assignment", "medium"),
         (re.compile(r'\.outerHTML\s*=(?!=)'), "Direct outerHTML assignment", "medium"),
     ],
     "tsx": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
         (re.compile(r'dangerouslySetInnerHTML'), "dangerouslySetInnerHTML usage", "medium"),
     ],
     "php": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
         (re.compile(r'\bassert\s*\(\s*["\']'), "assert() with string argument", "high"),
         (re.compile(r'\b(exec|system|shell_exec|passthru|popen)\s*\('), "Dangerous system call", "high"),
         (re.compile(r'\bunserialize\s*\('), "Insecure unserialize()", "high"),
         (re.compile(r'\bpreg_replace\s*\([^,]*\/e'), "preg_replace with /e modifier (code execution)", "critical"),
     ],
     "ruby": [
-        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),
+        (re.compile(r'\beval\s*\('), "Use of eval()", "critical"),  # nosec
         (re.compile(r'\binstance_eval\s*\('), "Use of instance_eval()", "high"),
         (re.compile(r'\bclass_eval\s*\('), "Use of class_eval()", "high"),
         (re.compile(r'\bmodule_eval\s*\('), "Use of module_eval()", "high"),
@@ -322,7 +322,7 @@ _DANGEROUS: dict[str, list[tuple[re.Pattern, str, str]]] = {
         (re.compile(r'\bMarshal\.load\s*\('), "Insecure Marshal.load()", "high"),
     ],
     "java": [
-        (re.compile(r'Runtime\.getRuntime\(\)\.exec\('), "Runtime.exec() — command injection risk", "high"),
+        (re.compile(r'Runtime\.getRuntime\(\)\.exec\('), "Runtime.exec() — command injection risk", "high"),  # nosec
         (re.compile(r'\bnew\s+ProcessBuilder\s*\('), "ProcessBuilder — verify input sanitization", "medium"),
         (re.compile(r'\bObjectInputStream\b'), "ObjectInputStream — insecure Java deserialization", "high"),
         (re.compile(r'\.forName\s*\('), "Class.forName() dynamic class loading", "medium"),
@@ -372,6 +372,8 @@ class DangerousFunctionDetector(BaseDetector):
         for line_num, line in enumerate(lines, start=1):
             stripped = line.strip()
             if stripped.startswith(("#", "//", "*", "<!--")):
+                continue
+            if '# nosec' in line:  # inline suppression (follows bandit convention)
                 continue
             for pattern, title, severity in patterns:
                 if pattern.search(line):
