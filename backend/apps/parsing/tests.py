@@ -147,3 +147,23 @@ class TestShouldSkip(SimpleTestCase):
     def test_migration_in_deeper_path_skipped(self):
         """Migration pattern must match regardless of how deep the path is."""
         self.assertTrue(should_skip("backend/apps/auth/migrations/0005_auto_20230101.py"))
+
+    def test_test_files_skipped(self):
+        """Test files contain dangerous-looking fixture strings — skip to avoid false positives."""
+        self.assertTrue(should_skip("apps/security/tests.py"))
+        self.assertTrue(should_skip("tests.py"))
+        self.assertTrue(should_skip("apps/auth/test_views.py"))
+        self.assertTrue(should_skip("apps/auth/views_test.py"))
+        self.assertTrue(should_skip("apps/auth/views_tests.py"))
+        self.assertTrue(should_skip("backend/apps/rules/tests.py"))
+
+    def test_jest_test_files_skipped(self):
+        """Jest-style test files also skipped."""
+        self.assertTrue(should_skip("src/components/Button.test.tsx"))
+        self.assertTrue(should_skip("src/api/client.spec.ts"))
+        self.assertTrue(should_skip("src/__tests__/utils.js"))
+
+    def test_normal_files_with_test_in_name_not_skipped(self):
+        """Files that contain 'test' in name but aren't test files must not be skipped."""
+        self.assertFalse(should_skip("apps/auth/attestation.py"))
+        self.assertFalse(should_skip("src/contest/views.py"))
