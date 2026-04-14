@@ -184,19 +184,24 @@ def _blended_similarity(
     pr_raw_code: str,
     match_raw_code: str | None,
     language: str,
-) -> float:
+) -> float | None:
     """
     Blend CodeBERT cosine similarity (70%) with token Jaccard (30%).
 
-    The blended score aligns with developer intuition better than raw cosine
-    alone, because CodeBERT is anisotropic and overestimates similarity for
-    structurally similar but semantically distinct functions.
+    Returns None when match_raw_code is unavailable AND STORE_RAW_CODE=True.
+    The caller treats None as "skip this match" — we cannot produce a reliable
+    score without the token side, and falling back to raw CodeBERT cosine causes
+    false positives (CodeBERT scores 0.97–0.99 for all same-language functions
+    due to embedding anisotropy).
 
-    Falls back to pure embedding similarity when match raw_code is unavailable
-    (STORE_RAW_CODE=false in production default).
+    When STORE_RAW_CODE=False, raw_code is never stored by design; falling back
+    to the embedding score is the documented trade-off in that mode.
     """
     if not match_raw_code:
-        return embedding_sim
+        from django.conf import settings
+        if getattr(settings, 'STORE_RAW_CODE', False):
+            return None  # raw_code missing despite STORE_RAW_CODE=True — skip
+        return embedding_sim  # STORE_RAW_CODE=False: documented fallback
     jaccard = _jaccard_similarity(pr_raw_code or '', match_raw_code, language)
     if jaccard is None:
         return embedding_sim
@@ -345,6 +350,8 @@ def find_semantic_duplicates(
                     match_raw_code=row.get('raw_code'),
                     language=chunk.language,
                 )
+                if similarity is None:
+                    continue  # raw_code missing — cannot compute reliable score
                 all_matches.append(DuplicateMatch(
                     file_path=chunk.file_path,
                     chunk_name=chunk.chunk_name,
