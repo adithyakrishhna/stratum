@@ -178,13 +178,26 @@ def _strip_noise(raw_code: str, language: str) -> str:
 
 
 def _body_tokens(chunk) -> set[str]:
-    """Meaningful identifier tokens from the function body (noise stripped)."""
+    """Meaningful identifier tokens from the function body (noise stripped).
+
+    Compound identifiers (snake_case) are split into their component words so
+    that 'form_data' contributes both 'form_data' and 'form' to the token set.
+    This lets filter 5 match 'form' (from match_name_tok) against a body that
+    uses 'form_data' — without this split, the two never intersect.
+    """
     code = _strip_noise(
         getattr(chunk, 'raw_code', '') or '',
         getattr(chunk, 'language', ''),
     )
-    tokens = {t.lower() for t in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b', code)}
-    return tokens - _STOP
+    compound = re.findall(r'\b[a-zA-Z][a-zA-Z0-9_]{3,}\b', code)
+    all_tokens: set[str] = set()
+    for tok in compound:
+        lower = tok.lower()
+        all_tokens.add(lower)
+        for part in lower.split('_'):
+            if len(part) >= 3:
+                all_tokens.add(part)
+    return all_tokens - _STOP
 
 
 def _jaccard_similarity(code1: str, code2: str, language: str) -> float | None:
