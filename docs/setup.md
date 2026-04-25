@@ -234,22 +234,140 @@ Same limitation as ngrok free: update the webhook URL each session.
 
 ---
 
-### Option C — Deploy to a server (permanent, recommended)
+### Option C — Deploy to a VPS (permanent, recommended for teams)
 
-The only option where you set the webhook URL once and never touch it again. Works for solo developers and teams.
+The only option where you set the webhook URL once and never touch it again. Stratum runs 24/7 on a server — PR reviews trigger automatically without anyone's laptop needing to be open.
 
-Free hosting options that work with Stratum's Docker Compose setup: **Railway**, **Render**, or any VPS.
+**Recommended providers:** DigitalOcean ($6/mo Droplet), Hetzner CX22 (€4/mo), Linode, Vultr — any Linux VPS with 2GB+ RAM and Docker support works.
+
+#### C.1 — Provision a server
+
+Create a fresh Ubuntu 22.04 or 24.04 server. SSH in as root or a sudo user.
+
+#### C.2 — Install Docker and Docker Compose
 
 ```bash
-# On the server
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+docker --version        # verify
+docker compose version  # verify
+```
+
+#### C.3 — Point a domain at the server
+
+In your domain registrar's DNS settings, add an **A record**:
+
+```
+Type: A
+Name: stratum        (or @ for root domain)
+Value: <your server IP>
+TTL: 300
+```
+
+After DNS propagates (usually 1–5 minutes), `ping stratum.yourdomain.com` should reach your server. You need a real domain for HTTPS (required by GitHub for webhooks).
+
+#### C.4 — Install Caddy (automatic HTTPS)
+
+Caddy automatically obtains and renews SSL certificates from Let's Encrypt — no manual certificate management needed.
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+Create `/etc/caddy/Caddyfile`:
+
+```
+stratum.yourdomain.com {
+    reverse_proxy localhost:8000
+}
+```
+
+Start Caddy:
+
+```bash
+sudo systemctl enable caddy
+sudo systemctl start caddy
+```
+
+Caddy will immediately obtain an SSL certificate. Your server is now reachable at `https://stratum.yourdomain.com`.
+
+#### C.5 — Clone and configure Stratum
+
+```bash
 git clone https://github.com/adithyakrishhna/stratum
 cd stratum
 cp .env.example .env
-# Fill in credentials
-docker compose up -d
+nano .env   # or vim .env
 ```
 
-Set your GitHub App webhook URL to `https://your-domain.com/api/webhooks/github/`. The server is always on — PR reviews trigger automatically regardless of whether your laptop is open.
+Fill in the same credentials as you would locally — GitHub App ID, private key path, webhook secret, OAuth client ID/secret. Set `ALLOWED_HOSTS` to your domain:
+
+```env
+ALLOWED_HOSTS=stratum.yourdomain.com
+DEBUG=false
+GITHUB_APP_ID=123456
+GITHUB_APP_PRIVATE_KEY_PATH=/secrets/stratum-app.private-key.pem
+GITHUB_WEBHOOK_SECRET=your-random-secret
+GITHUB_OAUTH_CLIENT_ID=abc123
+GITHUB_OAUTH_CLIENT_SECRET=def456
+```
+
+Copy your GitHub App private key to the server:
+
+```bash
+# From your local machine:
+scp secrets/stratum-app.private-key.pem user@your-server-ip:~/stratum/secrets/
+```
+
+#### C.6 — Update your GitHub App URLs
+
+In your GitHub App settings, update:
+
+| Field | Value |
+|---|---|
+| Homepage URL | `https://stratum.yourdomain.com` |
+| Webhook URL | `https://stratum.yourdomain.com/api/webhooks/github/` |
+| Callback URL (OAuth) | `https://stratum.yourdomain.com/accounts/github/login/callback/` |
+
+#### C.7 — Start Stratum
+
+```bash
+docker compose up -d
+docker compose ps    # all services should show Up or Up (healthy)
+```
+
+Open `https://stratum.yourdomain.com` — log in with GitHub and connect your first repository.
+
+#### C.8 — Auto-restart on server reboot
+
+Docker Compose services already have `restart: unless-stopped` — they start automatically when the server reboots. Caddy is managed by systemd and also starts automatically.
+
+#### What happens if the server goes down?
+
+GitHub retries a failed webhook delivery **3 times over 5 minutes**. If the server was down longer than that, GitHub stops retrying. To recover missed events after the server comes back up:
+
+1. Go to **GitHub App → Advanced → Recent Deliveries**
+2. Find events that show a failed status (red ✗)
+3. Click **Redeliver** on each one
+
+There is no limit on how many events you can redeliver — you can redeliver events from up to 3 days ago.
+
+#### Scaling for larger teams
+
+The default `docker-compose.yml` works well for teams of up to ~20 developers with moderate PR volume. For higher load:
+
+- Increase `--concurrency` on the `celery-parsing` worker (it's CPU-bound — set it to the number of server CPUs)
+- Increase `--concurrency` on `celery-pr-priority` if reviews are queuing
+- Add more RAM if the embedding service becomes the bottleneck (CodeBERT uses ~800MB)
+
+Stagger analysis of very large repositories — run one at a time to avoid saturating embedding workers.
 
 ---
 
