@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { GitPullRequest, ExternalLink, Search, PauseCircle, PlayCircle } from 'lucide-react'
+import { GitPullRequest, ExternalLink, Search, PauseCircle, PlayCircle, RefreshCw } from 'lucide-react'
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
 
@@ -11,7 +11,7 @@ import { RepoSelector, useRepoId } from '../components/RepoSelector'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const SEV_COLORS = { critical: '#f85149', high: '#d29922', medium: '#e3b341', low: '#58a6ff', info: '#6e7681' }
+const SEV_COLORS = { critical: '#f85149', high: '#f97316', medium: '#e3b341', low: '#58a6ff', info: '#6e7681' }
 const SEV_BG     = { critical: 'bg-danger-subtle text-danger', high: 'bg-warning-subtle text-warning', medium: 'bg-yellow-900/30 text-yellow-400', low: 'bg-accent/10 text-accent', info: 'bg-border-muted text-fg-muted' }
 
 function SeverityBadge({ sev }) {
@@ -76,11 +76,13 @@ export default function PrReview() {
     },
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['prs', repoId],
     queryFn: () => api.get(`/dashboard/${repoId}/prs/`).then((r) => r.data),
     enabled: !!repoId,
-    refetchInterval: 30_000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   })
 
   const allPrs = data?.data || []
@@ -112,6 +114,17 @@ export default function PrReview() {
         right={
           <div className="flex items-center gap-3">
             <RepoSelector value={repoId} onChange={handleRepoChange} />
+            {repoId && (
+              <button
+                onClick={() => refetch()}
+                disabled={isFetching}
+                title="Refresh PR list"
+                className="flex items-center gap-1.5 px-3 h-8 rounded-md text-xs border border-border text-fg-muted hover:text-fg hover:border-accent transition-colors disabled:opacity-40"
+              >
+                <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            )}
             {repoId && (
               <button
                 onClick={() => toggleMutation.mutate()}

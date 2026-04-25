@@ -32,8 +32,8 @@ export default {
           subtle: '#3d1f1f',
         },
         warning: {
-          DEFAULT: '#d29922',
-          subtle: '#3d2f00',
+          DEFAULT: '#f97316',
+          subtle: '#3d1a00',
         },
       },
       fontFamily: {
