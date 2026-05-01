@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide walks you through getting Stratum running from zero. Most of the time is spent on creating the GitHub App (a one-time ~10 minute process). After that, starting Stratum is a single command.
+Get Stratum running from zero. The GitHub App creation is a one-time ~10 minute process. After that, starting Stratum is a single command.
 
 ---
 
@@ -20,35 +20,31 @@ cd stratum
 cp .env.example .env
 ```
 
-You will come back to fill in `.env` after the next step.
+You will fill in `.env` after the next step.
 
 ---
 
 ## Step 2 — Create Your GitHub App
 
-Stratum uses a GitHub App to receive webhook events (PR opened, updated) and post review comments. This is a one-time setup per GitHub account or organization.
+Stratum uses a GitHub App to receive webhook events (PR opened, updated) and post review comments. This is a one-time setup.
 
-### 2a. Open GitHub App settings
+### 2a. Create the App
 
 - Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
-- Or for an organization: **Organization Settings → Developer settings → GitHub Apps → New GitHub App**
+- For an organization: **Org Settings → Developer settings → GitHub Apps → New GitHub App**
 
-### 2b. Fill in the app details
+### 2b. Fill in the details
 
 | Field | Value |
 |---|---|
-| GitHub App name | `Stratum Local` (or any name you like) |
+| GitHub App name | `Stratum Local` (or any name) |
 | Homepage URL | `http://localhost:8000` |
-| Webhook URL | See note below |
-| Webhook secret | Generate a random string — paste it in `.env` as `GITHUB_WEBHOOK_SECRET` |
+| Webhook URL | If running locally, put `https://placeholder.example.com/api/webhooks/github/` for now — you **must** update this with your real tunnel URL before PR reviews will work (see [Receiving Webhooks](#receiving-webhooks)) |
+| Webhook secret | A random string of your choice — paste it into `.env` as `GITHUB_WEBHOOK_SECRET` |
 
-**Webhook URL:**
-- **Docker / production with a real domain:** `https://yourdomain.com/api/webhooks/github/`
-- **Local development (your laptop):** You need a tunnel — see [Receiving Webhooks Locally](#receiving-webhooks-locally-ngrok). For now, put a placeholder like `https://placeholder.example.com/api/webhooks/github/` and update it after ngrok is running.
+### 2c. Permissions
 
-### 2c. Set permissions
-
-Under **Repository permissions**, grant:
+Under **Repository permissions**:
 
 | Permission | Access |
 |---|---|
@@ -60,40 +56,35 @@ Under **Repository permissions**, grant:
 
 ### 2d. Subscribe to events
 
-Check these events under **Subscribe to events**:
-
-- Pull request
-- Push
+Check: **Pull request** and **Push**
 
 ### 2e. Finalize
 
-- Set **Where can this GitHub App be installed?** to **Only on this account** (for personal use) or **Any account** (for teams)
+- **Where can this GitHub App be installed?** → `Only on this account` (personal) or `Any account` (teams)
 - Click **Create GitHub App**
 
-### 2f. Collect your credentials
-
-After creating the app:
+### 2f. Get your credentials
 
 1. Copy the **App ID** → paste into `.env` as `GITHUB_APP_ID`
-2. Scroll down to **Private keys** → click **Generate a private key**
-3. A `.pem` file will download. **Move it to the `secrets/` folder** inside your Stratum directory and rename it to `stratum-app.private-key.pem`
+2. Scroll to **Private keys** → click **Generate a private key**
+3. Move the downloaded `.pem` file to the `secrets/` folder inside Stratum and rename it:
 
 ```
 stratum/
   secrets/
-    stratum-app.private-key.pem   ← put the downloaded .pem here
+    stratum-app.private-key.pem
 ```
 
-### 2g. Create GitHub OAuth app (for dashboard login)
+### 2g. Create a GitHub OAuth App (for dashboard login)
 
-Stratum's dashboard uses GitHub OAuth so you can log in with your GitHub account.
+Stratum's dashboard login uses GitHub OAuth — **there is no username/password for the dashboard**. Users log in with their GitHub account.
 
 - Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
 - Homepage URL: `http://localhost:8000`
 - Authorization callback URL: `http://localhost:8000/accounts/github/login/callback/`
 - Copy **Client ID** and **Client Secret** into `.env`
 
-### 2h. Your .env should now look like this
+### 2h. Your .env should now have
 
 ```env
 GITHUB_APP_ID=123456
@@ -105,6 +96,8 @@ GITHUB_OAUTH_CLIENT_SECRET=def456
 
 Everything else in `.env` can stay at its default value to start.
 
+> **Fix suggestions on PR comments:** If you want Stratum to suggest how to fix each issue (powered by Groq), add a free API key from [console.groq.com](https://console.groq.com) as `GROQ_API_KEY=...` in `.env`. Without it, findings are still posted — just without the suggested fix text.
+
 ---
 
 ## Step 3 — Start Stratum
@@ -113,28 +106,30 @@ Everything else in `.env` can stay at its default value to start.
 docker compose up -d
 ```
 
-This single command starts everything: PostgreSQL, Redis, Django, the FastAPI embedding microservice, and 5 Celery workers.
+This starts everything: PostgreSQL, Redis, Django, the FastAPI embedding microservice, and 5 Celery workers.
 
-> **You do not need to run `python manage.py runserver` or any other command.**  
-> Docker Compose manages all services. `manage.py` is only used by contributors developing Stratum itself — see [Local Development](#local-development-setup-without-full-docker) at the bottom of this guide.
-
-First run takes a few minutes as Docker pulls images and builds containers. Check that everything started:
+Check all services are up:
 
 ```bash
 docker compose ps
 ```
 
-All services should show `Up` or `Up (healthy)`. The embedding service takes the longest to become healthy — it downloads the CodeBERT model (~400MB) on first start.
+All services should show `Up` or `Up (healthy)`. The embedding service takes the longest — it downloads the CodeBERT model (~400MB) on first start. Wait 2–3 minutes if it shows `starting`.
 
-Open **http://localhost:8000** and log in with GitHub.
+Open **http://localhost:8000** — you will see a login page. Click **Login with GitHub** and authorize Stratum.
+
+> **Important:** All `manage.py` commands must be run through Docker, not from your local terminal. Your local terminal does not have a database connection. Use:
+> ```bash
+> docker compose exec django python manage.py <command>
+> ```
+
+> **Data warning:** `docker compose down` is safe — your data is preserved. `docker compose down -v` permanently deletes all database data (repositories, embeddings, PR history). There is no undo.
 
 ---
 
 ## Step 4 — Add stratum.yaml to Your Repository
 
-`stratum.yaml` goes in the **root of the repository you want to review** — not inside the Stratum repo itself. It tells Stratum which rules to apply to that repo.
-
-Copy `stratum.yaml.example` from the Stratum directory as a starting point:
+`stratum.yaml` goes in the **root of the repository you want to review** — not inside Stratum. It tells Stratum which rules to apply.
 
 ```yaml
 # stratum.yaml — place this in YOUR repo root
@@ -164,112 +159,99 @@ Full reference: [configuration.md](configuration.md)
 
 1. Open Stratum at `http://localhost:8000`
 2. Go to **Connect Repository**
-3. Enter your repo in `owner/repo` format (e.g. `adithyakrishhna/my-project`)
-4. Click **Connect**, then select a branch and click **Analyze**
+3. Enter your repo in `owner/repo` format (e.g. `yourname/my-project`)
+4. Click **Connect**, select a branch, and click **Analyze**
 
-Stratum will walk your entire git history. Progress is visible on the **Pipeline Monitor** page in real time.
+Stratum will walk your entire git history. Progress is visible on the **Pipeline Monitor** page in real time. For a large repo (1000+ commits), this can take 30–60 minutes on first run. Subsequent runs are incremental and much faster.
 
-**Then install the GitHub App on that repository:**
-- Go to your GitHub App's page → **Install App** → select the repository
-
-From now on, every time a PR is opened or updated on that repo, Stratum will post a review automatically.
+**Install the GitHub App on that repository:**
+- Go to your GitHub App page → **Install App** → select the repository
 
 ---
 
-## Receiving Webhooks Locally
+## Step 6 — Receive Your First PR Review
 
-GitHub webhooks are sent to the URL you configure in your GitHub App. When Stratum runs on your laptop, that URL must be reachable from the internet — `http://localhost:8000` is not.
+**Before you open a PR, your webhook tunnel must be running.** Without it, GitHub fires the event but Stratum never receives it, and no review appears.
 
-**The key point:** The webhook URL in your GitHub App is one global setting. It is not per-developer. Webhooks go to whichever machine is behind that URL. If that machine is offline or the tunnel is not running, GitHub fires the webhook but nothing receives it — and GitHub does not retry automatically. You must redeliver missed events manually from the GitHub App's Advanced tab.
+See [Receiving Webhooks](#receiving-webhooks) below for setup options. The quickest is ngrok:
 
-| Setup | Recommended approach |
+```bash
+ngrok http 8000
+# Copy the https://... URL and paste it into your GitHub App → Webhook URL as:
+# https://abc123.ngrok-free.app/api/webhooks/github/
+```
+
+Once the tunnel is set up:
+
+1. Open a pull request on the connected repository
+2. Wait ~30–60 seconds
+3. Stratum will post a review comment directly on the GitHub PR with a health score and inline findings
+
+If no comment appears within 2 minutes, check the troubleshooting section below.
+
+---
+
+## Receiving Webhooks
+
+GitHub webhooks need a publicly reachable URL to deliver events. `http://localhost:8000` is not reachable from the internet.
+
+| Setup | Approach |
 |---|---|
-| **Solo developer, local machine** | ngrok free — URL changes each restart, update webhook URL each session |
-| **Solo developer, wants permanent URL** | Deploy to a free server (Railway, Render) — set once, always on |
-| **Team** | Deploy to a shared server — one URL, everyone uses the same instance |
+| **Solo, local laptop** | ngrok free — URL changes each restart, update webhook URL each session |
+| **Solo, permanent URL** | Deploy to a VPS or cloud server — set once, never touch again |
+| **Team** | Deploy to a shared server — one URL, everyone uses the same Stratum instance |
 
----
+### Option A — ngrok (quickest)
 
-### Option A — ngrok (free, simplest to start)
+1. Install from [ngrok.com/download](https://ngrok.com/download) and create a free account.
 
-The quickest way to get webhooks working locally. The URL changes every time you restart ngrok, so you need to update the GitHub App webhook URL each session.
-
-1. Install ngrok from [ngrok.com/download](https://ngrok.com/download) and create a free account.
-
-2. Start a tunnel:
+2. Start a tunnel (keep this terminal open — closing it stops webhooks):
    ```bash
    ngrok http 8000
    ```
-   ngrok prints a URL like `https://abc123def456.ngrok-free.app`.
 
-3. Update your GitHub App's webhook URL:
-   - Go to **GitHub App → Edit → Webhook URL** and paste the ngrok URL:
+3. Copy the `https://...ngrok-free.app` URL. Update your **GitHub App → Edit → Webhook URL**:
    ```
    https://abc123def456.ngrok-free.app/api/webhooks/github/
    ```
 
-4. That's it. Repeat step 2–3 each time you restart ngrok.
+4. Repeat steps 2–3 each time you restart ngrok (the URL changes every time on the free tier).
 
-> You do not need to change `ALLOWED_HOSTS` in `.env` while `DEBUG=True` — Stratum accepts all hosts in debug mode.
-
-**Missed a webhook?** If you opened a PR while ngrok was not running, GitHub will not automatically resend it. To trigger a review: go to **GitHub App → Advanced → Recent Deliveries**, find the missed event, and click **Redeliver**.
+**Missed a webhook?** If you opened a PR while ngrok wasn't running, the event was never delivered. GitHub will not retry. To replay it: **GitHub App → Advanced → Recent Deliveries** → find the failed event → **Redeliver**.
 
 ---
 
-### Option B — Cloudflare Tunnel (free, URL changes on restart)
+### Option B — Cloudflare Tunnel (free alternative to ngrok)
 
-An alternative to ngrok. The quick tunnel URL also changes between restarts.
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
 
-1. Install `cloudflared`: [developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads)
-
-2. Start a tunnel:
-   ```bash
-   cloudflared tunnel --url http://localhost:8000
-   ```
-   It prints a URL like `https://random-name.trycloudflare.com`.
-
-3. Update your GitHub App webhook URL to that URL.
-
-Same limitation as ngrok free: update the webhook URL each session.
+Same URL-changes-on-restart limitation as ngrok free.
 
 ---
 
 ### Option C — Deploy to a VPS (permanent, recommended for teams)
 
-The only option where you set the webhook URL once and never touch it again. Stratum runs 24/7 on a server — PR reviews trigger automatically without anyone's laptop needing to be open.
+The only option where you set the webhook URL once and never update it again. Stratum runs 24/7.
 
-**Recommended providers:** DigitalOcean ($6/mo Droplet), Hetzner CX22 (€4/mo), Linode, Vultr — any Linux VPS with 2GB+ RAM and Docker support works.
+**Recommended providers:** DigitalOcean ($6/mo), Hetzner CX22 (€4/mo), any Linux VPS with 2GB+ RAM.
 
-#### C.1 — Provision a server
-
-Create a fresh Ubuntu 22.04 or 24.04 server. SSH in as root or a sudo user.
-
-#### C.2 — Install Docker and Docker Compose
+#### C.1 — Install Docker on the server
 
 ```bash
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-newgrp docker
-docker --version        # verify
-docker compose version  # verify
+sudo usermod -aG docker $USER && newgrp docker
 ```
 
-#### C.3 — Point a domain at the server
+#### C.2 — Point a domain at your server
 
-In your domain registrar's DNS settings, add an **A record**:
-
+Add an A record in your DNS:
 ```
-Type: A
-Name: stratum        (or @ for root domain)
-Value: <your server IP>
-TTL: 300
+Type: A  |  Name: stratum  |  Value: <server IP>  |  TTL: 300
 ```
 
-After DNS propagates (usually 1–5 minutes), `ping stratum.yourdomain.com` should reach your server. You need a real domain for HTTPS (required by GitHub for webhooks).
-
-#### C.4 — Install Caddy (automatic HTTPS)
-
-Caddy automatically obtains and renews SSL certificates from Let's Encrypt — no manual certificate management needed.
+#### C.3 — Install Caddy (handles HTTPS automatically)
 
 ```bash
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
@@ -277,177 +259,118 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
   | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
   | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
+sudo apt update && sudo apt install caddy
 ```
 
 Create `/etc/caddy/Caddyfile`:
-
 ```
 stratum.yourdomain.com {
     reverse_proxy localhost:8000
 }
 ```
 
-Start Caddy:
-
 ```bash
-sudo systemctl enable caddy
-sudo systemctl start caddy
+sudo systemctl enable caddy && sudo systemctl start caddy
 ```
 
-Caddy will immediately obtain an SSL certificate. Your server is now reachable at `https://stratum.yourdomain.com`.
-
-#### C.5 — Clone and configure Stratum
+#### C.4 — Clone, configure, and start
 
 ```bash
 git clone https://github.com/adithyakrishhna/stratum
 cd stratum
 cp .env.example .env
-nano .env   # or vim .env
+# Edit .env — set ALLOWED_HOSTS=stratum.yourdomain.com and DEBUG=false
+# Copy your .pem file to secrets/stratum-app.private-key.pem
+docker compose up -d
 ```
 
-Fill in the same credentials as you would locally — GitHub App ID, private key path, webhook secret, OAuth client ID/secret. Set `ALLOWED_HOSTS` to your domain:
-
-```env
-ALLOWED_HOSTS=stratum.yourdomain.com
-DEBUG=false
-GITHUB_APP_ID=123456
-GITHUB_APP_PRIVATE_KEY_PATH=/secrets/stratum-app.private-key.pem
-GITHUB_WEBHOOK_SECRET=your-random-secret
-GITHUB_OAUTH_CLIENT_ID=abc123
-GITHUB_OAUTH_CLIENT_SECRET=def456
-```
-
-Copy your GitHub App private key to the server:
-
-```bash
-# From your local machine:
-scp secrets/stratum-app.private-key.pem user@your-server-ip:~/stratum/secrets/
-```
-
-#### C.6 — Update your GitHub App URLs
-
-In your GitHub App settings, update:
+#### C.5 — Update GitHub App URLs
 
 | Field | Value |
 |---|---|
 | Homepage URL | `https://stratum.yourdomain.com` |
 | Webhook URL | `https://stratum.yourdomain.com/api/webhooks/github/` |
-| Callback URL (OAuth) | `https://stratum.yourdomain.com/accounts/github/login/callback/` |
+| OAuth Callback URL | `https://stratum.yourdomain.com/accounts/github/login/callback/` |
 
-#### C.7 — Start Stratum
+All services restart automatically if the server reboots (`restart: unless-stopped` is set on every container).
 
+**If the server goes down:** GitHub retries webhook delivery 3 times over 5 minutes. For events missed beyond that: **GitHub App → Advanced → Recent Deliveries → Redeliver**.
+
+---
+
+## Admin Panel
+
+The Django admin panel at `/admin/` is for database inspection and user management. You do not need it for normal Stratum usage.
+
+**Two login methods exist and they are separate accounts:**
+
+| Method | Used for |
+|---|---|
+| **GitHub OAuth** | Dashboard login — this is what all users do |
+| **Django superuser** | `/admin/` panel only |
+
+If you need admin access, create a superuser:
 ```bash
-docker compose up -d
-docker compose ps    # all services should show Up or Up (healthy)
+docker compose exec django python manage.py createsuperuser
 ```
 
-Open `https://stratum.yourdomain.com` — log in with GitHub and connect your first repository.
+**To use your GitHub account for `/admin/` as well** (optional convenience):
+```bash
+# First, find your username
+docker compose exec django python manage.py shell -c "
+from django.contrib.auth import get_user_model
+[print(u.id, u.username, '| staff:', u.is_staff) for u in get_user_model().objects.all()]
+"
 
-#### C.8 — Auto-restart on server reboot
-
-Docker Compose services already have `restart: unless-stopped` — they start automatically when the server reboots. Caddy is managed by systemd and also starts automatically.
-
-#### What happens if the server goes down?
-
-GitHub retries a failed webhook delivery **3 times over 5 minutes**. If the server was down longer than that, GitHub stops retrying. To recover missed events after the server comes back up:
-
-1. Go to **GitHub App → Advanced → Recent Deliveries**
-2. Find events that show a failed status (red ✗)
-3. Click **Redeliver** on each one
-
-There is no limit on how many events you can redeliver — you can redeliver events from up to 3 days ago.
-
-#### Scaling for larger teams
-
-The default `docker-compose.yml` works well for teams of up to ~20 developers with moderate PR volume. For higher load:
-
-- Increase `--concurrency` on the `celery-parsing` worker (it's CPU-bound — set it to the number of server CPUs)
-- Increase `--concurrency` on `celery-pr-priority` if reviews are queuing
-- Add more RAM if the embedding service becomes the bottleneck (CodeBERT uses ~800MB)
-
-Stagger analysis of very large repositories — run one at a time to avoid saturating embedding workers.
+# Then promote it (replace your_github_username)
+docker compose exec django python manage.py shell -c "
+from django.contrib.auth import get_user_model
+u = get_user_model().objects.get(username='your_github_username')
+u.is_staff = True; u.is_superuser = True; u.save()
+print('Done')
+"
+```
 
 ---
 
 ## Updating Stratum
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
-That's it. Your data (PostgreSQL volume) is preserved between updates.
+Your database is preserved between updates.
 
 ---
 
-## Admin Panel
+## Known Limitations
 
-Stratum's Django admin panel is available at `/admin/`. It is intended for database inspection and user management — regular Stratum usage only requires the dashboard at `/dashboard/`.
+Before using Stratum, be aware of what is and isn't available:
 
-### Two separate login methods
-
-Stratum has two ways to log in:
-
-| Method | Used for |
+| Feature | Status |
 |---|---|
-| **GitHub OAuth** (`/accounts/github/login/`) | Normal dashboard login — what every user does |
-| **Django superuser** (`/admin/` login form) | Admin panel access only |
-
-These are **two separate accounts** in Django's database. Logging into `/admin/` with superuser credentials does not affect your GitHub OAuth session, and vice versa.
-
-If you log into `/admin/` and then visit `/dashboard/`, Django's session cookie keeps you signed in as the superuser — you will appear logged in on the dashboard too. Sign out from the dashboard to switch back to your GitHub account.
-
-### Create a superuser (first-time setup)
-
-Always run management commands through Docker — running them directly from your local terminal connects to `localhost:5433` (dev database port) instead of the container:
-
-```bash
-docker compose exec django python manage.py createsuperuser
-```
-
-### Grant your GitHub account admin access
-
-By default, your GitHub OAuth account is a regular (non-staff) user. Visiting `/admin/` while logged in via GitHub redirects you back to the dashboard.
-
-To grant your GitHub account full admin access — so you can use either login method for `/admin/`:
-
-**Step 1** — List all users to find your GitHub username:
-
-```bash
-docker compose exec django python manage.py shell -c "
-from django.contrib.auth import get_user_model
-User = get_user_model()
-for u in User.objects.all().order_by('date_joined'):
-    print(u.id, u.username, u.email, '| staff:', u.is_staff, '| super:', u.is_superuser)
-"
-```
-
-**Step 2** — Promote your GitHub account (replace `your_github_username`):
-
-```bash
-docker compose exec django python manage.py shell -c "
-from django.contrib.auth import get_user_model
-User = get_user_model()
-u = User.objects.get(username='your_github_username')
-u.is_staff = True
-u.is_superuser = True
-u.save()
-print('Done —', u.username, 'is now superuser')
-"
-```
-
-After this, logging in via GitHub OAuth grants full `/admin/` access.
+| PR Review (security, rules, duplicate detection) | ✅ Fully working |
+| PR Review Center dashboard | ✅ Fully working |
+| Pipeline Monitor | ✅ Fully working |
+| Repository Overview | ✅ Working — health score and file list populate after first analysis |
+| Debt Timeline | ✅ Working — requires a completed full analysis to show history |
+| Semantic Cluster Map | ⚠️ Partially implemented — clustering runs but the interactive timeline slider is not yet built |
+| Velocity Heatmap | ⚠️ Partially implemented — scores are calculated but the file-tree visualization is not yet built |
+| Blame Report | ⚠️ Partially implemented — ranking is calculated but the CSV export is not yet built |
+| PR Debt Impact Prediction | 🚧 Not yet implemented — the warning "this PR accelerates Cluster #8 by 35%" is planned for a future release |
+| Multi-repo support | ✅ You can connect multiple repositories |
+| First analysis of large repos (1000+ commits) | ⏳ Can take 30–90 minutes — subsequent runs are incremental |
+| pgvector limit | ~1 million embedded functions per Stratum instance — sufficient for most codebases |
+| Groq fix suggestions limit | 14,400 suggestions/day on the free tier |
+| GitHub API limit | 5,000 requests/hour per GitHub App installation |
 
 ---
 
-## Local Development Setup (Without Full Docker)
+## Local Development (Contributors Only)
 
-> **This section is for contributors developing Stratum itself.**  
-> If you are a regular user, stop at Step 3 (`docker compose up -d`). Do not run `manage.py` — it will fail unless `docker-compose.dev.yml` is also running and your `.env` is switched to local dev settings.
+> **If you are a regular user, stop at Step 3.** The section below is for developers contributing to Stratum itself.
 
-For contributors — runs Django, Celery, and the embedding service directly on your machine for fast iteration.
+Run Django, Celery, and the embedding service directly on your machine for fast iteration.
 
 ### Start infrastructure only
 
@@ -455,7 +378,7 @@ For contributors — runs Django, Celery, and the embedding service directly on 
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-This starts only PostgreSQL (on port 5433) and Redis (on port 6380).
+This starts only PostgreSQL (port 5433) and Redis (port 6380).
 
 ### Update .env for local dev
 
@@ -466,39 +389,26 @@ REDIS_URL=redis://localhost:6380/0
 CELERY_BROKER_URL=redis://localhost:6380/0
 CELERY_RESULT_BACKEND=redis://localhost:6380/1
 EMBEDDING_SERVICE_URL=http://localhost:8001
-# Local dev path for the .pem file:
 GITHUB_APP_PRIVATE_KEY_PATH=C:\Users\you\stratum\secrets\stratum-app.private-key.pem
 ```
 
-### Install dependencies
-
-```bash
-cd backend
-pip install -r requirements.txt
-python manage.py migrate
-```
-
-### Start all services (in separate terminals)
+### Start all services (separate terminals)
 
 ```bash
 # Terminal 1 — Django
-python manage.py runserver
+cd backend && python manage.py migrate && python manage.py runserver
 
-# Terminal 2 — Celery (all queues for dev convenience)
+# Terminal 2 — Celery
 celery -A config.celery worker --queues ingestion,parsing,embedding,intelligence,pr_priority --concurrency 2 --loglevel INFO
 
 # Terminal 3 — Embedding microservice
-cd ../embedding_service
-pip install -r requirements.txt
-uvicorn main:app --port 8001 --reload
+cd embedding_service && uvicorn main:app --port 8001 --reload
 
-# Terminal 4 — Frontend dev server (hot reload)
-cd ../frontend
-npm install
-npm run dev
+# Terminal 4 — Frontend (hot reload)
+cd frontend && npm install && npm run dev
 ```
 
-Frontend is at `http://localhost:5173`. It proxies `/api/` and `/ws/` to Django at port 8000.
+Frontend dev server is at `http://localhost:5173`. It proxies `/api/` and `/ws/` to Django at port 8000.
 
 ---
 
@@ -529,41 +439,51 @@ Browser Dashboard ───────┤─► Django (HTTP + WebSockets)     
                          └─────────────────────────────────────────┘
 ```
 
-The PR priority queue is dedicated and never shares workers with history ingestion — PR reviews always complete in under 60 seconds regardless of whether a large repo analysis is running.
+The PR priority queue never shares workers with history ingestion — PR reviews complete in under 60 seconds even during a large analysis.
 
 ---
 
 ## Troubleshooting
 
+**No PR review comment appeared after opening a PR**
+1. Is your webhook tunnel running? (`ngrok http 8000`)
+2. Does the URL in your GitHub App → Webhook URL match the current ngrok URL?
+3. Check Django received the event: `docker compose logs django --tail 50` — look for a `POST /api/webhooks/github/`
+4. If no POST appears, the event never arrived. Go to **GitHub App → Advanced → Recent Deliveries** and redeliver it.
+5. If a POST appears but no review followed: `docker compose logs celery-pr-priority --tail 30`
+
 **"Embedding service not healthy" on first start**
-The CodeBERT model downloads on first start (~400MB). Wait 2-3 minutes and check again:
+CodeBERT downloads on first start (~400MB). Wait 2–3 minutes:
 ```bash
 docker compose logs embedding --tail 20
 ```
 
-**Webhook events not arriving**
-- Check ngrok is running and the URL in your GitHub App matches
-- Check Django logs: `docker compose logs django --tail 50`
-- Verify the webhook secret in `.env` matches what's set in your GitHub App
-
 **"Analysis queued" but nothing happens**
-- Check Celery workers are running: `docker compose ps`
-- Check Celery logs: `docker compose logs celery-ingestion --tail 30`
+```bash
+docker compose ps                                      # all workers should be Up
+docker compose logs celery-ingestion --tail 30        # check for errors
+```
+
+**manage.py command fails with "connection refused"**
+You are running it from your local terminal. Run it through Docker instead:
+```bash
+docker compose exec django python manage.py <command>
+```
 
 **Private key error on startup**
-- Confirm the `.pem` file is at `./secrets/stratum-app.private-key.pem`
-- Confirm `GITHUB_APP_PRIVATE_KEY_PATH=/secrets/stratum-app.private-key.pem` in `.env`
+- File must be at `./secrets/stratum-app.private-key.pem`
+- `.env` must have `GITHUB_APP_PRIVATE_KEY_PATH=/secrets/stratum-app.private-key.pem`
 
-**Database connection error**
-- Postgres might still be initializing. Wait 30 seconds and retry:
-  ```bash
-  docker compose restart django
-  ```
+**Visiting /admin/ redirects me to the dashboard**
+You are logged in via GitHub OAuth, which is a regular (non-staff) user. See [Admin Panel](#admin-panel) to grant your GitHub account staff access.
+
+**I ran `docker compose down -v` and lost all my data**
+The `-v` flag deletes named volumes (database, Redis, repo clones). Data cannot be recovered. Re-connect your repositories and run analysis again — Stratum will re-walk the git history and rebuild all embeddings.
 
 **Port 8000 already in use**
-Change the port in `docker-compose.yml`:
+Change the host port in `docker-compose.yml`:
 ```yaml
 ports:
-  - "8080:8000"   # host port 8080 → container port 8000
+  - "8080:8000"
 ```
-Then access Stratum at `http://localhost:8080`.
+Then access Stratum at `http://localhost:8080`. Update your GitHub App URLs accordingly.
