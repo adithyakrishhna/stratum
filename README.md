@@ -1,4 +1,4 @@
-# Stratum
+# Stratum — AI Powered Semantic Code Intelligence & Debt Evolution Engine🚀
 
 Self-hosted AI code review and technical debt tracking for engineering teams.
 
