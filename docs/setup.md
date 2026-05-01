@@ -382,6 +382,66 @@ That's it. Your data (PostgreSQL volume) is preserved between updates.
 
 ---
 
+## Admin Panel
+
+Stratum's Django admin panel is available at `/admin/`. It is intended for database inspection and user management — regular Stratum usage only requires the dashboard at `/dashboard/`.
+
+### Two separate login methods
+
+Stratum has two ways to log in:
+
+| Method | Used for |
+|---|---|
+| **GitHub OAuth** (`/accounts/github/login/`) | Normal dashboard login — what every user does |
+| **Django superuser** (`/admin/` login form) | Admin panel access only |
+
+These are **two separate accounts** in Django's database. Logging into `/admin/` with superuser credentials does not affect your GitHub OAuth session, and vice versa.
+
+If you log into `/admin/` and then visit `/dashboard/`, Django's session cookie keeps you signed in as the superuser — you will appear logged in on the dashboard too. Sign out from the dashboard to switch back to your GitHub account.
+
+### Create a superuser (first-time setup)
+
+Always run management commands through Docker — running them directly from your local terminal connects to `localhost:5433` (dev database port) instead of the container:
+
+```bash
+docker compose exec django python manage.py createsuperuser
+```
+
+### Grant your GitHub account admin access
+
+By default, your GitHub OAuth account is a regular (non-staff) user. Visiting `/admin/` while logged in via GitHub redirects you back to the dashboard.
+
+To grant your GitHub account full admin access — so you can use either login method for `/admin/`:
+
+**Step 1** — List all users to find your GitHub username:
+
+```bash
+docker compose exec django python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+for u in User.objects.all().order_by('date_joined'):
+    print(u.id, u.username, u.email, '| staff:', u.is_staff, '| super:', u.is_superuser)
+"
+```
+
+**Step 2** — Promote your GitHub account (replace `your_github_username`):
+
+```bash
+docker compose exec django python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+u = User.objects.get(username='your_github_username')
+u.is_staff = True
+u.is_superuser = True
+u.save()
+print('Done —', u.username, 'is now superuser')
+"
+```
+
+After this, logging in via GitHub OAuth grants full `/admin/` access.
+
+---
+
 ## Local Development Setup (Without Full Docker)
 
 > **This section is for contributors developing Stratum itself.**  
