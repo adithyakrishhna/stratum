@@ -1,5 +1,7 @@
 # Stratum — AI Powered Semantic Code Intelligence & Debt Evolution Engine🚀
 
+> The name comes from geology — strata are layers of rock that accumulate over time, each layer telling a story of what happened before it. Your codebase is no different. Every commit adds a new layer. Stratum reads all of them.
+
 Self-hosted AI code review and technical debt tracking for engineering teams.
 
 Stratum does two things:
