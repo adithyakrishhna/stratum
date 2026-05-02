@@ -94,9 +94,9 @@ GITHUB_OAUTH_CLIENT_ID=abc123
 GITHUB_OAUTH_CLIENT_SECRET=def456
 ```
 
-Everything else in `.env` can stay at its default value to start.
+These four values are the only ones you must fill in. Everything else in `.env` — database, Redis, Celery, embedding service — is pre-configured for Docker Compose and works without any changes.
 
-> **Fix suggestions on PR comments:** If you want Stratum to suggest how to fix each issue (powered by Groq), add a free API key from [console.groq.com](https://console.groq.com) as `GROQ_API_KEY=...` in `.env`. Without it, findings are still posted — just without the suggested fix text.
+> **Fix suggestions on PR comments (optional):** Stratum is fully wired to call Groq and post a plain-English "how to fix this" suggestion on every critical and high severity PR comment. To enable it, add a free API key from [console.groq.com](https://console.groq.com) as `GROQ_API_KEY=...` in `.env`. Without the key, all findings still post — just without the suggested fix text. The feature is fully built; the key is all you need to activate it.
 
 ---
 
