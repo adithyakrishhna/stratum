@@ -3,13 +3,48 @@ CLAUDE.md
 .claudeignore
 .claude/
 
+# Environment — never commit
+.env
+
+# Python
 venv/
+__pycache__/
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
+
+# Django
 db.sqlite3
 media/
 staticfiles/
+
+# Testing / tooling
 .mypy_cache/
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Node
 node_modules/
+
+# GitHub App private key
+*.pem
+
+# Local repo clones (created by ingestion engine, never commit)
+repo_clones/
+
+# Secrets folder — track the directory so it exists on fresh clone,
+# but never commit the private key or any other file inside it.
+secrets/*
+!secrets/.gitkeep
+
+# Large demo assets — host via GitHub CDN (drag-drop on github.com), never commit to git
+docs/*.mp4
+docs/*.mov
+docs/*.avi
+
+# code review graph
+.mcp.json
+.opencode.json

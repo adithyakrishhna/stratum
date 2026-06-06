@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Authentication error — Stratum{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="logo">⬡ Stratum</div>
+  <h1>Authentication error</h1>
+  <div class="alert alert-error">
+    GitHub login failed. Check that your OAuth credentials are correctly set in <code>.env</code>
+    and that the callback URL matches your GitHub OAuth App settings.
+  </div>
+  <a href="{% url 'account_login' %}" class="btn btn-github">Try again</a>
+</div>
+{% endblock %}

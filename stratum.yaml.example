@@ -1,0 +1,86 @@
+# =============================================================================
+# stratum.yaml — Stratum rule configuration
+# Place this file in the ROOT of YOUR repository (not Stratum's repo).
+# Stratum reads this file to enforce code quality rules on PRs and history.
+# All settings are optional — defaults are used when omitted.
+# =============================================================================
+
+rules:
+  # Maximum number of lines in a single function or method.
+  # Functions longer than this are flagged at medium severity.
+  max_function_lines: 50
+
+  # Maximum cyclomatic complexity (1 + number of branches).
+  # > 2x this limit → high severity. Within 2x → medium.
+  max_complexity: 10
+
+  # Packages that must not be imported, by language.
+  forbidden_imports:
+    python:
+      - pickle       # insecure deserialization
+      - shelve       # backed by pickle
+      - marshal      # insecure deserialization
+    javascript:
+      - eval
+    typescript:
+      - eval
+    php:
+      - eval
+
+  # Naming convention enforcement, by language.
+  # Options: snake_case | camelCase | PascalCase | SCREAMING_SNAKE_CASE
+  naming_conventions:
+    python: snake_case
+    java: camelCase
+    go: camelCase
+    ruby: snake_case
+
+# =============================================================================
+# Debt scoring weights — controls how each component contributes to the
+# per-file debt score on the Debt Timeline and Velocity Heatmap.
+# These are relative multipliers. Higher value = that component matters more.
+# Example: violations: 0.4 makes rule violations twice as impactful as
+# complexity: 0.2. The values do not need to sum to 1.0.
+# =============================================================================
+scoring_weights:
+  complexity: 0.3
+  duplication: 0.3
+  violations: 0.2
+  cluster_membership: 0.2
+
+# =============================================================================
+# Semantic analysis settings
+# =============================================================================
+semantic:
+  # Cosine similarity threshold for flagging a function as a duplicate.
+  # 0.97 = very strict (near-identical logic). Lower values catch more matches
+  # but increase false positives. Range: 0.80–0.99. Default: 0.97
+  similarity_threshold: 0.97
+
+  # Minimum cluster growth impact to trigger a PR debt warning.
+  # 0.05 = warn when a PR accelerates a cluster's growth by 5% or more.
+  # Lower values = more warnings. Default: 0.05
+  debt_impact_threshold: 0.05
+
+  # Experimental: detect duplicates across different programming languages.
+  # Cross-language accuracy is lower — enable only if you have a polyglot codebase.
+  cross_language_clustering: false
+
+# =============================================================================
+# Skip list — files and directories Stratum will not analyze
+# =============================================================================
+skip:
+  directories:
+    - vendor/
+    - node_modules/
+    - migrations/
+    - .git/
+    - dist/
+    - build/
+    - __pycache__/
+  file_patterns:
+    - "*.min.js"
+    - "*.pb.go"
+    - "*.generated.*"
+    - "*.pb.py"
+  max_line_length_threshold: 500     # lines longer than this = minified/generated, skip

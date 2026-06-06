@@ -1,0 +1,257 @@
+# =============================================================================
+# Stratum — Full Production Docker Compose
+# Starts every service with a single command:  docker compose up -d
+# Update:  docker compose pull && docker compose up -d
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-stratum}
+      POSTGRES_USER: ${DB_USER:-stratum}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-stratum} -d ${DB_NAME:-stratum}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Django — ASGI server (Daphne, handles HTTP + WebSockets)
+  # ---------------------------------------------------------------------------
+
+  django:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app          # live code reload — no rebuild needed
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # FastAPI — Embedding Microservice (CodeBERT)
+  # ---------------------------------------------------------------------------
+
+  embedding:
+    build:
+      context: .
+      dockerfile: embedding_service/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Celery Workers — one service per queue (Optimization 7)
+  # ---------------------------------------------------------------------------
+
+  celery-ingestion:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A config.celery worker
+      --queues ingestion
+      --concurrency 1
+      --loglevel INFO
+      --hostname ingestion@%h
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    entrypoint: []
+    volumes:
+      - ./backend:/app
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-parsing:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A config.celery worker
+      --queues parsing
+      --concurrency 4
+      --loglevel INFO
+      --hostname parsing@%h
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    entrypoint: []
+    volumes:
+      - ./backend:/app
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-embedding:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A config.celery worker
+      --queues embedding
+      --concurrency 2
+      --loglevel INFO
+      --hostname embedding@%h
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    entrypoint: []
+    volumes:
+      - ./backend:/app
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-intelligence:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A config.celery worker
+      --queues intelligence
+      --concurrency 1
+      --loglevel INFO
+      --hostname intelligence@%h
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    entrypoint: []
+    volumes:
+      - ./backend:/app
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-pr-priority:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A config.celery worker
+      --queues pr_priority
+      --concurrency 2
+      --loglevel INFO
+      --hostname pr_priority@%h
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMBEDDING_SERVICE_URL: http://embedding:8001
+    entrypoint: []
+    volumes:
+      - ./backend:/app
+      - repo_clones:/repo_clones
+      - ./secrets:/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+
+volumes:
+  postgres_data:
+  redis_data:
+  repo_clones:
