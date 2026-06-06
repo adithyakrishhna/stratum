@@ -188,8 +188,7 @@ flowchart TD
 
 ## Demo
 
-<!-- To embed the demo: edit this file on github.com, drag-drop docs/demo.mp4 into the editor.
-     GitHub uploads it to their CDN and generates a URL — paste it here to replace this comment. -->
+[![Stratum Demo](https://img.youtube.com/vi/klKipIpXZDs/maxresdefault.jpg)](https://youtu.be/klKipIpXZDs)
 
 ---
 
