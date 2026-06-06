@@ -208,3 +208,9 @@ flowchart TD
 | **Real-time** | Django Channels (WebSockets) |
 | **LLM Suggestions** | Groq API (opt-in, free tier) |
 | **Containerization** | Docker Compose |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
