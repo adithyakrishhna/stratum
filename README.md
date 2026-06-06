@@ -16,6 +16,12 @@ Supports: Python, JavaScript (+ JSX), TypeScript (+ TSX), Java, Go, Rust, C, C++
 
 ---
 
+## Demo
+
+[![Stratum Demo](https://img.youtube.com/vi/klKipIpXZDs/maxresdefault.jpg)](https://youtu.be/klKipIpXZDs)
+
+---
+
 ## Quick Start
 
 **You need:** Docker Desktop and a GitHub account.
@@ -183,12 +189,6 @@ flowchart TD
 
     DJ -->|"post inline PR comments"| GH
 ```
-
----
-
-## Demo
-
-[![Stratum Demo](https://img.youtube.com/vi/klKipIpXZDs/maxresdefault.jpg)](https://youtu.be/klKipIpXZDs)
 
 ---
 
